@@ -1,6 +1,7 @@
 import { CAREER_EVENT_TYPES, latestCareerEvents } from './event-ledger.js';
 import { strongestStoryArc } from './newsroom-story-arcs.js';
 import { factualClaimsFromEvent, rankNewsEvents } from './newsroom-editorial.js';
+import { selectEditorialEdition } from './newsroom-edition.js';
 
 function nameOf(code, resolver, fallback = code) {
   if (!code) return fallback || '';
@@ -183,15 +184,17 @@ export function newsroomArticleFromEvent(event, context = {}, editorial = {}) {
 
 export function buildCareerNewsroom(career, context = {}) {
   const userClubCode = context.userClubCode || career?.clubCode || null;
-  const editorialContext = { ...context, userClubCode };
+  const currentDate = context.currentDate || career?.currentDate || null;
+  const editorialContext = { ...context, userClubCode, currentDate };
   const events = latestCareerEvents(career, context.eventLimit || 180);
   const ranked = rankNewsEvents(events, editorialContext);
+  const edition = selectEditorialEdition(ranked, editorialContext);
   const strongest = strongestStoryArc(career, userClubCode);
   const storyEventIds = new Set(strongest?.eventIds || []);
-  const feed = ranked.map(item => newsroomArticleFromEvent(item.event, {
+  const feed = edition.map(item => newsroomArticleFromEvent(item.event, {
     ...context,
     userClubCode,
-    currentDate: context.currentDate || career?.currentDate
+    currentDate
   }, {
     score: item.score,
     tier: item.tier,
@@ -200,7 +203,7 @@ export function buildCareerNewsroom(career, context = {}) {
   }));
   return {
     schemaVersion: 1,
-    generatedForDate: context.currentDate || career?.currentDate || null,
+    generatedForDate: currentDate,
     lead: feed.find(article => article.tier === 'lead') || feed[0] || null,
     feed,
     activeStoryArc: strongest
