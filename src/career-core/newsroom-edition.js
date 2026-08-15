@@ -1,0 +1,124 @@
+import { CAREER_EVENT_TYPES } from './event-ledger.js';
+
+const DAY = 86_400_000;
+const MARKET_TYPES = new Set([
+  CAREER_EVENT_TYPES.TRANSFER_LISTED,
+  CAREER_EVENT_TYPES.TRANSFER_OFFERED,
+  CAREER_EVENT_TYPES.TRANSFER_COMPLETED,
+  CAREER_EVENT_TYPES.LOAN_COMPLETED
+]);
+
+function utcDay(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+  const [year, month, day] = String(value).split('-').map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+function ageDays(eventDate, currentDate) {
+  const event = utcDay(eventDate);
+  const current = utcDay(currentDate);
+  if (event == null || current == null) return 0;
+  return Math.floor((current - event) / DAY);
+}
+
+function tierFor(score) {
+  return score >= 75 ? 'lead' : score >= 55 ? 'major' : score >= 35 ? 'brief' : 'wire';
+}
+
+function penaltyFor(event, currentDate) {
+  const age = ageDays(event.gameDate, currentDate);
+  if (age < 0) return Number.POSITIVE_INFINITY;
+  if (age === 0) return 0;
+  const perDay = event.type === CAREER_EVENT_TYPES.MATCH_PLAYED ? 7
+    : event.type === CAREER_EVENT_TYPES.MANAGER_PRESS ? 8
+      : event.type === CAREER_EVENT_TYPES.TRANSFER_OFFERED ? 8
+        : event.type === CAREER_EVENT_TYPES.INJURY ? 4
+          : MARKET_TYPES.has(event.type) ? 5
+            : 5;
+  const grace = event.type === CAREER_EVENT_TYPES.INJURY || event.type === CAREER_EVENT_TYPES.TRANSFER_COMPLETED ? 1 : 0;
+  return Math.max(0, age - grace) * perDay;
+}
+
+function marketPlayerKey(event) {
+  if (!MARKET_TYPES.has(event.type)) return null;
+  return event.facts?.playerId || event.entities?.playerIds?.[0] || null;
+}
+
+function marketStage(event) {
+  if ([CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) return 3;
+  if (event.type === CAREER_EVENT_TYPES.TRANSFER_OFFERED) return 2;
+  if (event.type === CAREER_EVENT_TYPES.TRANSFER_LISTED) return 1;
+  return 0;
+}
+
+function applyRecency(row, currentDate) {
+  const penalty = penaltyFor(row.event, currentDate);
+  const score = Number.isFinite(penalty) ? Math.max(1, Number(row.score || 0) - penalty) : 0;
+  return {
+    ...row,
+    rawScore: Number(row.score || 0),
+    score,
+    tier: score > 0 ? tierFor(score) : 'reject',
+    ageDays: ageDays(row.event.gameDate, currentDate)
+  };
+}
+
+export function selectEditorialEdition(ranked = [], context = {}) {
+  const currentDate = context.currentDate || null;
+  const maxStories = Math.max(6, Number(context.maxStories) || 24);
+  const marketLimit = Math.max(2, Number(context.marketLimit) || 6);
+  const wireLimit = Math.max(2, Number(context.wireLimit) || 6);
+  const clubLimit = Math.max(2, Number(context.clubLimit) || 4);
+  const userClubLimit = Math.max(clubLimit, Number(context.userClubLimit) || 7);
+
+  const recencyRanked = ranked
+    .map(row => applyRecency(row, currentDate))
+    .filter(row => row.score > 0)
+    .sort((a, b) => b.score - a.score || b.event.gameDate.localeCompare(a.event.gameDate));
+
+  const bestMarketStory = new Map();
+  for (const row of recencyRanked) {
+    const key = marketPlayerKey(row.event);
+    if (!key) continue;
+    const current = bestMarketStory.get(key);
+    if (!current || marketStage(row.event) > marketStage(current.event)
+      || (marketStage(row.event) === marketStage(current.event) && row.event.gameDate > current.event.gameDate)) {
+      bestMarketStory.set(key, row);
+    }
+  }
+
+  const selected = [];
+  const clubCounts = new Map();
+  let marketCount = 0;
+  let wireCount = 0;
+
+  for (const row of recencyRanked) {
+    if (selected.length >= maxStories) break;
+    const marketKey = marketPlayerKey(row.event);
+    if (marketKey && bestMarketStory.get(marketKey)?.event.id !== row.event.id) continue;
+    if (marketKey && marketCount >= marketLimit && row.tier !== 'lead') continue;
+    if (row.tier === 'wire' && wireCount >= wireLimit) continue;
+
+    const clubs = row.event.entities?.clubCodes || [];
+    const primaryClub = clubs[0] || null;
+    if (primaryClub && row.tier !== 'lead') {
+      const current = clubCounts.get(primaryClub) || 0;
+      const limit = primaryClub === context.userClubCode ? userClubLimit : clubLimit;
+      if (current >= limit) continue;
+    }
+
+    selected.push(row);
+    if (marketKey) marketCount += 1;
+    if (row.tier === 'wire') wireCount += 1;
+    for (const club of clubs) clubCounts.set(club, (clubCounts.get(club) || 0) + 1);
+  }
+
+  return selected;
+}
+
+export const NEWSROOM_EDITION_META = Object.freeze({
+  maxStories: 24,
+  marketLimit: 6,
+  wireLimit: 6,
+  invariant: 'old events decay, future events never publish, and one player negotiation cannot flood the edition'
+});
