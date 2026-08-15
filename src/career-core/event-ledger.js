@@ -151,12 +151,11 @@ export function createEventLedger(career = {}) {
   };
 }
 
-export function ensureEventLedger(career) {
-  if (!career || typeof career !== 'object') return career;
+function ensureLedgerShape(career) {
   const existing = career.eventLedger;
   if (!existing) {
     career.eventLedger = createEventLedger(career);
-    return career;
+    return;
   }
 
   if (Array.isArray(existing)) {
@@ -166,7 +165,7 @@ export function ensureEventLedger(career) {
       sequence: events.length,
       events
     };
-    return career;
+    return;
   }
 
   const rawEvents = Array.isArray(existing.events) ? existing.events : [];
@@ -197,12 +196,60 @@ export function ensureEventLedger(career) {
     createdAt: timestamp(existing.createdAt) || timestamp(career.createdAt) || null,
     updatedAt: timestamp(existing.updatedAt) || timestamp(career.updatedAt || career.createdAt) || null
   };
+}
+
+function matchEventFromResult(result, fixtureId, career) {
+  const homeCode = cleanString(result?.home || result?.homeCode);
+  const awayCode = cleanString(result?.away || result?.awayCode);
+  const homeGoals = Number(result?.homeGoals);
+  const awayGoals = Number(result?.awayGoals);
+  const id = cleanString(result?.fixtureId || fixtureId);
+  const gameDate = dateOnly(result?.date, dateOnly(career?.currentDate) || '1970-01-01');
+  if (!id || !homeCode || !awayCode || !Number.isInteger(homeGoals) || homeGoals < 0 || !Number.isInteger(awayGoals) || awayGoals < 0) return null;
+  return {
+    id: `evt-match-${id}`,
+    type: CAREER_EVENT_TYPES.MATCH_PLAYED,
+    gameDate,
+    source: 'career-results-reconciliation',
+    scope: 'competition',
+    entities: { clubCodes: [homeCode, awayCode] },
+    facts: {
+      fixtureId: id,
+      homeCode,
+      awayCode,
+      homeGoals,
+      awayGoals,
+      rivalry: Boolean(result?.rivalry)
+    },
+    context: {
+      competitionId: result?.competitionId || result?.competition || null,
+      userClubInvolved: [homeCode, awayCode].includes(career?.clubCode)
+    },
+    links: { fixtureId: id }
+  };
+}
+
+export function reconcileResultEvents(career) {
+  if (!career || typeof career !== 'object') return career;
+  ensureLedgerShape(career);
+  const results = career.results && typeof career.results === 'object' ? career.results : {};
+  for (const [fixtureId, result] of Object.entries(results)) {
+    const event = matchEventFromResult(result, fixtureId, career);
+    if (event) appendCareerEvent(career, event, { source: event.source, gameDate: event.gameDate });
+  }
+  return career;
+}
+
+export function ensureEventLedger(career) {
+  if (!career || typeof career !== 'object') return career;
+  ensureLedgerShape(career);
+  reconcileResultEvents(career);
   return career;
 }
 
 export function appendCareerEvent(career, event, options = {}) {
-  ensureEventLedger(career);
-  if (!career?.eventLedger) return null;
+  if (!career || typeof career !== 'object') return null;
+  ensureLedgerShape(career);
   const ledger = career.eventLedger;
   const sequence = Math.max(Number(ledger.sequence) || 0, ledger.events.length) + 1;
   const normalized = normalizeCareerEvent(event, {
