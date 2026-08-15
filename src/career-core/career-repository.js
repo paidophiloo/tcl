@@ -1,5 +1,7 @@
 import { reconcileCareerData } from './result-integrity.js';
 import { reconcileMailbox } from './mailbox-core.js';
+import { ensureEventLedger } from './event-ledger.js';
+import { ensureNewsroomArchive } from './newsroom-archive.js';
 
 const DB_NAME = "touchline-career-v5";
 const DB_VERSION = 1;
@@ -107,9 +109,6 @@ function freshestSnapshot(primary, fallback) {
   if (primaryRevision !== fallbackRevision) {
     return fallbackRevision > primaryRevision ? fallback : primary;
   }
-  // localStorage is written synchronously before IndexedDB. On an exact
-  // revision/timestamp tie, the synchronous fallback is the safest snapshot
-  // during a navigation that lands between concurrent transactions.
   return timestampOf(fallback) >= timestampOf(primary) ? fallback : primary;
 }
 
@@ -189,6 +188,8 @@ function reconcileStoredCareer(save) {
   const snapshot = structuredClone(save);
   reconcileCareerData(snapshot);
   reconcileMailbox(snapshot);
+  ensureEventLedger(snapshot);
+  ensureNewsroomArchive(snapshot);
   return snapshot;
 }
 
