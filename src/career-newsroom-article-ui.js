@@ -43,6 +43,7 @@ function dateLabel(value) {
 function sourceLabel(source) {
   const labels = {
     'career-results-reconciliation': 'Motor de partidas',
+    'career-match-incidents': 'Linha do tempo da partida',
     'match-engine': 'Motor de partidas',
     'living-world-ledger': 'Living World',
     'newsroom-press-conference': 'Coletiva do treinador',
@@ -51,13 +52,28 @@ function sourceLabel(source) {
   return labels[source] || 'Touchline Event Ledger';
 }
 
+function scoreSuffix(score) {
+  if (!score || !Number.isFinite(Number(score.homeGoals)) || !Number.isFinite(Number(score.awayGoals))) return '';
+  return ` · placar ${Number(score.homeGoals)}–${Number(score.awayGoals)}`;
+}
+
 function claimText(claim) {
   if (claim.kind === 'score') {
     return `${clubName(claim.homeCode)} ${claim.homeGoals}–${claim.awayGoals} ${clubName(claim.awayCode)}`;
   }
+  if (claim.kind === 'goal') {
+    const assist = claim.assistPlayerId ? `, assistência de ${playerName(claim.assistPlayerId)}` : '';
+    const penalty = claim.isPenalty ? ' (pênalti)' : '';
+    return `${Number(claim.minute) || 0}' — Gol de ${playerName(claim.playerId)} pelo ${clubName(claim.clubCode)}${penalty}${assist}${scoreSuffix(claim.scoreAfter)}`;
+  }
+  if (claim.kind === 'red-card') {
+    return `${Number(claim.minute) || 0}' — Cartão vermelho para ${playerName(claim.playerId)} (${clubName(claim.clubCode)})${scoreSuffix(claim.scoreAtIncident)}`;
+  }
   if (claim.kind === 'injury') {
     const names = (claim.playerIds || []).map(playerName).join(', ') || 'Jogador';
-    return `${names}: ausência estimada de ${Number(claim.daysOut) || 0} dias`;
+    const minute = claim.minute ? `${Number(claim.minute)}' — ` : '';
+    const days = Number(claim.daysOut) || 0;
+    return days ? `${minute}${names}: ausência estimada de ${days} dias` : `${minute}${names}: lesão registrada pelo departamento médico`;
   }
   if (claim.kind === 'move') {
     return `${playerName(claim.playerId)}: ${clubName(claim.fromClubCode)} → ${clubName(claim.toClubCode)} · ${money(claim.fee)}`;
@@ -111,7 +127,7 @@ function overlayMarkup(article, event, media) {
             <div><dt>Categoria</dt><dd>${esc(article.category === 'club' ? 'Seu clube' : 'Mundo')}</dd></div>
             <div><dt>Validação</dt><dd>FactValidator ✓</dd></div>
           </dl>
-          <small>A interface não adiciona placares, transferências, lesões ou declarações que não existam no estado da carreira.</small>
+          <small>A interface não adiciona placares, transferências, lesões, cartões, gols ou declarações que não existam no estado da carreira.</small>
         </aside>
       </div>
     </article>
