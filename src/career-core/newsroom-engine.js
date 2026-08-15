@@ -176,18 +176,20 @@ function categoryFor(event, context) {
   return event.entities?.clubCodes?.includes(context.userClubCode) ? 'club' : 'league';
 }
 
-function mediaIntentFor(event) {
+function mediaIntentFor(event, heroPlayerId = null) {
+  const eventPlayers = [...(event.entities?.playerIds || [])];
+  const playerIds = heroPlayerId ? [heroPlayerId, ...eventPlayers.filter(id => id !== heroPlayerId)] : eventPlayers;
   return {
     eventId: event.id,
     type: event.type,
     clubCodes: [...(event.entities?.clubCodes || [])],
-    playerIds: [...(event.entities?.playerIds || [])],
+    playerIds,
     fixtureId: event.links?.fixtureId || event.facts?.fixtureId || null,
-    preference: event.entities?.playerIds?.length ? 'player' : event.entities?.clubCodes?.length ? 'club' : 'competition'
+    preference: playerIds.length ? 'player' : event.entities?.clubCodes?.length ? 'club' : 'competition'
   };
 }
 
-function matchTimelineClaims(matchEvent, allEvents) {
+function relatedMatchEvents(matchEvent, allEvents) {
   const fixtureId = matchEvent?.facts?.fixtureId || matchEvent?.links?.fixtureId;
   if (!fixtureId) return [];
   const supported = new Set([CAREER_EVENT_TYPES.GOAL, CAREER_EVENT_TYPES.RED_CARD, CAREER_EVENT_TYPES.INJURY]);
@@ -195,8 +197,33 @@ function matchTimelineClaims(matchEvent, allEvents) {
     .filter(event => event.id !== matchEvent.id)
     .filter(event => supported.has(event.type))
     .filter(event => String(event.facts?.fixtureId || event.links?.fixtureId || '') === String(fixtureId))
-    .sort((left, right) => Number(left.facts?.minute || 999) - Number(right.facts?.minute || 999) || left.id.localeCompare(right.id))
-    .flatMap(event => factualClaimsFromEvent(event));
+    .sort((left, right) => Number(left.facts?.minute || 999) - Number(right.facts?.minute || 999) || left.id.localeCompare(right.id));
+}
+
+function matchTimelineClaims(matchEvent, allEvents) {
+  return relatedMatchEvents(matchEvent, allEvents).flatMap(event => factualClaimsFromEvent(event));
+}
+
+function matchHeroPlayerId(matchEvent, allEvents) {
+  if (matchEvent?.type !== CAREER_EVENT_TYPES.MATCH_PLAYED) return null;
+  const facts = matchEvent.facts || {};
+  const winnerCode = Number(facts.homeGoals) > Number(facts.awayGoals)
+    ? facts.homeCode
+    : Number(facts.awayGoals) > Number(facts.homeGoals)
+      ? facts.awayCode
+      : null;
+  const rows = new Map();
+  for (const event of relatedMatchEvents(matchEvent, allEvents)) {
+    if (event.type !== CAREER_EVENT_TYPES.GOAL || !event.facts?.playerId) continue;
+    const id = event.facts.playerId;
+    const row = rows.get(id) || { playerId: id, goals: 0, winnerGoals: 0, latestMinute: 0 };
+    row.goals += 1;
+    if (winnerCode && event.facts.clubCode === winnerCode) row.winnerGoals += 1;
+    row.latestMinute = Math.max(row.latestMinute, Number(event.facts.minute) || 0);
+    rows.set(id, row);
+  }
+  return [...rows.values()]
+    .sort((left, right) => right.goals - left.goals || right.winnerGoals - left.winnerGoals || right.latestMinute - left.latestMinute || left.playerId.localeCompare(right.playerId))[0]?.playerId || null;
 }
 
 function claimsForArticle(event, allEvents) {
@@ -219,7 +246,7 @@ export function newsroomArticleFromEvent(event, context = {}, editorial = {}) {
     tier: editorial.tier || 'wire',
     newsworthiness: editorial.score || 0,
     storyArcId: editorial.storyArcId || null,
-    mediaIntent: mediaIntentFor(event),
+    mediaIntent: mediaIntentFor(event, editorial.heroPlayerId || null),
     factualClaims: editorial.factualClaims || factualClaimsFromEvent(event)
   };
 }
@@ -241,6 +268,7 @@ export function buildCareerNewsroom(career, context = {}) {
     score: item.score,
     tier: item.tier,
     storyArcId: storyEventIds.has(item.event.id) ? strongest?.id || null : null,
+    heroPlayerId: matchHeroPlayerId(item.event, events),
     factualClaims: claimsForArticle(item.event, events)
   }));
   return {
