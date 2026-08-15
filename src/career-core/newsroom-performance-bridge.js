@@ -1,5 +1,5 @@
 import { PLAYER_BY_ID } from './career-core.js';
-import { appendCareerEvent } from './event-ledger.js';
+import { CAREER_EVENT_TYPES, appendCareerEvent } from './event-ledger.js';
 import {
   MILESTONE_KINDS,
   NEWSROOM_PERFORMANCE_EVENT_TYPES,
@@ -56,9 +56,18 @@ function performanceKinds(row) {
   return kinds;
 }
 
-function milestonesReached(beforeSeason, afterSeason, beforeClub, afterClub) {
+function arrivalRecorded(career, playerId, clubCode, gameDate) {
+  return (career?.eventLedger?.events || []).some(event =>
+    [CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type) &&
+    event.gameDate <= gameDate &&
+    String(event.facts?.playerId || event.entities?.playerIds?.[0] || '') === String(playerId) &&
+    String(event.facts?.toClubCode || '') === String(clubCode)
+  );
+}
+
+function milestonesReached(beforeSeason, afterSeason, beforeClub, afterClub, allowFirstClubGoal) {
   const milestones = [];
-  if (beforeClub === 0 && afterClub > 0) {
+  if (allowFirstClubGoal && beforeClub === 0 && afterClub > 0) {
     milestones.push({ kind: MILESTONE_KINDS.FIRST_CLUB_GOAL, value: 1 });
   }
   const crossed = SEASON_GOAL_MILESTONES.filter(value => beforeSeason < value && afterSeason >= value);
@@ -167,7 +176,8 @@ export function derivePerformanceEvents(career) {
       const beforeClub = clubGoals.get(clubKey) || 0;
       const afterSeason = beforeSeason + row.goals;
       const afterClub = beforeClub + row.goals;
-      const milestones = milestonesReached(beforeSeason, afterSeason, beforeClub, afterClub);
+      const firstClubGoalIsKnown = arrivalRecorded(career, row.playerId, row.clubCode, result.date);
+      const milestones = milestonesReached(beforeSeason, afterSeason, beforeClub, afterClub, firstClubGoalIsKnown);
 
       const performance = performanceEvent(result, row, afterSeason, afterClub, milestones);
       if (performance) events.push(performance);
@@ -197,7 +207,7 @@ export function reconcilePerformanceNewsEvents(career) {
 }
 
 export const NEWSROOM_PERFORMANCE_BRIDGE_META = Object.freeze({
-  source: 'canonical career.results',
-  derived: Object.freeze(['brace', 'hat-trick', 'four-plus-goals', 'two-plus-assists', 'first-club-goal', 'season-goal-milestones', 'starter-in-team-shutout']),
-  invariant: 'performance headlines are deterministic derivatives of canonical results; no subjective rating or untracked clean-sheet award is invented'
+  source: 'canonical career.results + recorded transfer arrivals',
+  derived: Object.freeze(['brace', 'hat-trick', 'four-plus-goals', 'two-plus-assists', 'first-goal-after-recorded-club-arrival', 'season-goal-milestones', 'starter-in-team-shutout']),
+  invariant: 'performance headlines are deterministic derivatives of canonical results; first-club-goal requires a recorded arrival and no subjective rating or untracked clean-sheet award is invented'
 });
