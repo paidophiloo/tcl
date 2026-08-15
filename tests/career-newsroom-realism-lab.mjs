@@ -96,18 +96,24 @@ for (let iteration = 0; iteration < 25; iteration += 1) {
   archiveNewsroomSnapshot(career, newsroomA);
   assert.equal(career.newsroomArchive.articles.length, archivedCount, `iteration ${iteration}: archive duplicated an event`);
 
-  const conference = buildPressConference(career);
-  assert.ok(conference, `iteration ${iteration}: expected eligible press conference`);
-  assert.equal(career.eventLedger.events.some(event => event.type === CAREER_EVENT_TYPES.MANAGER_PRESS), false, `iteration ${iteration}: press quote existed before user choice`);
+  assert.equal(buildPressConference(career), null, `iteration ${iteration}: stale press conference remained available weeks after the match`);
+  const pressCareer = structuredClone(career);
+  pressCareer.currentDate = derby.gameDate;
+  pressCareer.updatedAt = `${derby.gameDate}T18:00:00.000Z`;
+  const conference = buildPressConference(pressCareer);
+  assert.ok(conference, `iteration ${iteration}: match-day press conference should be eligible`);
+  assert.equal(conference.sourceEventId, derby.id, `iteration ${iteration}: press conference attached to the wrong match`);
+  assert.equal(pressCareer.eventLedger.events.some(event => event.type === CAREER_EVENT_TYPES.MANAGER_PRESS), false, `iteration ${iteration}: press quote existed before user choice`);
   const question = conference.questions[0];
   const selected = question.options[0];
-  const response = recordPressResponse(career, conference, question.id, selected.id);
+  const response = recordPressResponse(pressCareer, conference, question.id, selected.id);
   assert.ok(response?.event, `iteration ${iteration}: selected response was not recorded`);
   assert.equal(response.event.facts.quote, selected.quote, `iteration ${iteration}: stored quote differs from selected authored quote`);
-  assert.equal(recordPressResponse(career, conference, question.id, question.options.at(-1).id), null, `iteration ${iteration}: answered press question was rewritable`);
+  assert.equal(recordPressResponse(pressCareer, conference, question.id, question.options.at(-1).id), null, `iteration ${iteration}: answered press question was rewritable`);
 
-  const rankedA = rankNewsEvents(career.eventLedger.events, context).map(row => `${row.event.id}:${row.score}:${row.tier}`);
-  const rankedB = rankNewsEvents(career.eventLedger.events, context).map(row => `${row.event.id}:${row.score}:${row.tier}`);
+  const pressContext = { ...context, currentDate: pressCareer.currentDate };
+  const rankedA = rankNewsEvents(pressCareer.eventLedger.events, pressContext).map(row => `${row.event.id}:${row.score}:${row.tier}`);
+  const rankedB = rankNewsEvents(pressCareer.eventLedger.events, pressContext).map(row => `${row.event.id}:${row.score}:${row.tier}`);
   assert.deepEqual(rankedA, rankedB, `iteration ${iteration}: editorial ranking drifted`);
 }
 
