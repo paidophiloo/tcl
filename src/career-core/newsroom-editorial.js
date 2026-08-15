@@ -1,5 +1,5 @@
 import { CAREER_EVENT_TYPES } from './event-ledger.js';
-import { NEWSROOM_PERFORMANCE_EVENT_TYPES, PERFORMANCE_KINDS, MILESTONE_KINDS } from './newsroom-performance-types.js';
+import { NEWSROOM_PERFORMANCE_EVENT_TYPES, PERFORMANCE_KINDS, MILESTONE_KINDS, SEASON_RECORD_KINDS } from './newsroom-performance-types.js';
 
 const REQUIRED_FACTS = Object.freeze({
   [CAREER_EVENT_TYPES.MATCH_PLAYED]: ['fixtureId', 'homeCode', 'awayCode', 'homeGoals', 'awayGoals'],
@@ -9,7 +9,8 @@ const REQUIRED_FACTS = Object.freeze({
   [CAREER_EVENT_TYPES.TRANSFER_COMPLETED]: ['playerId', 'toClubCode'],
   [CAREER_EVENT_TYPES.LOAN_COMPLETED]: ['playerId', 'fromClubCode', 'toClubCode'],
   [NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE]: ['fixtureId', 'playerId', 'clubCode', 'performanceTypes'],
-  [NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE]: ['fixtureId', 'playerId', 'clubCode', 'milestones']
+  [NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE]: ['fixtureId', 'playerId', 'clubCode', 'milestones'],
+  [NEWSROOM_PERFORMANCE_EVENT_TYPES.SEASON_RECORD]: ['fixtureId', 'recordKind']
 });
 
 function finiteScore(value) {
@@ -79,12 +80,45 @@ function milestoneScore(event, context) {
   return score;
 }
 
+function seasonRecordScore(event, context) {
+  const facts = event.facts || {};
+  const involvesUser = event.entities?.clubCodes?.includes(context.userClubCode);
+  let score = 42;
+  if (facts.recordKind === SEASON_RECORD_KINDS.TOP_SCORER_LEAD) {
+    score = 46 + Math.min(34, Math.max(0, finiteScore(facts.goals)) * 2.2);
+  } else if (facts.recordKind === SEASON_RECORD_KINDS.BIGGEST_WIN_SO_FAR) {
+    score = 46 + Math.min(30, Math.max(0, finiteScore(facts.margin)) * 5);
+  } else if (facts.recordKind === SEASON_RECORD_KINDS.HIGHEST_SCORING_MATCH_SO_FAR) {
+    score = 44 + Math.min(30, Math.max(0, finiteScore(facts.totalGoals)) * 3.5);
+  }
+  return score + (involvesUser ? 8 : 0);
+}
+
 function validPerformanceArrays(event, errors) {
   if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE) {
     if (!Array.isArray(event.facts?.performanceTypes) || !event.facts.performanceTypes.length) errors.push('performance-types-invalid');
   }
   if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE) {
     if (!Array.isArray(event.facts?.milestones) || !event.facts.milestones.length) errors.push('milestones-invalid');
+  }
+}
+
+function validateSeasonRecord(event, errors) {
+  if (event.type !== NEWSROOM_PERFORMANCE_EVENT_TYPES.SEASON_RECORD) return;
+  const facts = event.facts || {};
+  if (!Object.values(SEASON_RECORD_KINDS).includes(facts.recordKind)) errors.push('season-record-kind-invalid');
+  if (facts.recordKind === SEASON_RECORD_KINDS.TOP_SCORER_LEAD) {
+    if (!facts.playerId) errors.push('fact-missing:playerId');
+    if (!facts.clubCode) errors.push('fact-missing:clubCode');
+    if (finiteScore(facts.goals) < 3) errors.push('record-goals-invalid');
+  }
+  if (facts.recordKind === SEASON_RECORD_KINDS.BIGGEST_WIN_SO_FAR) {
+    if (!facts.homeCode || !facts.awayCode || !facts.winnerCode) errors.push('record-match-facts-missing');
+    if (finiteScore(facts.margin) < 3) errors.push('record-margin-invalid');
+  }
+  if (facts.recordKind === SEASON_RECORD_KINDS.HIGHEST_SCORING_MATCH_SO_FAR) {
+    if (!facts.homeCode || !facts.awayCode) errors.push('record-match-facts-missing');
+    if (finiteScore(facts.totalGoals) < 5) errors.push('record-total-goals-invalid');
   }
 }
 
@@ -113,6 +147,7 @@ export function validateNewsFact(event) {
     errors.push('fact-missing:fromClubCode');
   }
   validPerformanceArrays(event, errors);
+  validateSeasonRecord(event, errors);
 
   return { valid: errors.length === 0, errors };
 }
@@ -127,6 +162,7 @@ export function scoreNewsworthiness(event, context = {}) {
   else if ([CAREER_EVENT_TYPES.TRANSFER_LISTED, CAREER_EVENT_TYPES.TRANSFER_OFFERED, CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) score = transferScore(event, context);
   else if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE) score = performanceScore(event, context);
   else if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE) score = milestoneScore(event, context);
+  else if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.SEASON_RECORD) score = seasonRecordScore(event, context);
   else if (event.type === CAREER_EVENT_TYPES.MANAGER_PRESS) score = 22 + (event.entities?.clubCodes?.includes(context.userClubCode) ? 16 : 0);
   else if (event.type === CAREER_EVENT_TYPES.RED_CARD) score = 34 + (event.entities?.clubCodes?.includes(context.userClubCode) ? 12 : 0);
   else if (event.type === CAREER_EVENT_TYPES.BOARD_MESSAGE) score = 28;
@@ -203,6 +239,25 @@ export function factualClaimsFromEvent(event) {
       seasonGoalsAfter: event.facts.seasonGoalsAfter ?? null,
       clubGoalsAfter: event.facts.clubGoalsAfter ?? null,
       milestones: [...event.facts.milestones]
+    });
+  }
+  if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.SEASON_RECORD) {
+    claims.push({
+      kind: 'season-record',
+      recordKind: event.facts.recordKind,
+      fixtureId: event.facts.fixtureId,
+      playerId: event.facts.playerId || null,
+      clubCode: event.facts.clubCode || null,
+      goals: event.facts.goals ?? null,
+      homeCode: event.facts.homeCode || null,
+      awayCode: event.facts.awayCode || null,
+      homeGoals: event.facts.homeGoals ?? null,
+      awayGoals: event.facts.awayGoals ?? null,
+      winnerCode: event.facts.winnerCode || null,
+      margin: event.facts.margin ?? null,
+      totalGoals: event.facts.totalGoals ?? null,
+      previousMargin: event.facts.previousMargin ?? null,
+      previousTotalGoals: event.facts.previousTotalGoals ?? null
     });
   }
   return claims;
