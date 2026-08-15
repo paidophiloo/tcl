@@ -51,6 +51,16 @@ appendCareerEvent(career, {
   links: { fixtureId: 'f3' }
 });
 appendCareerEvent(career, {
+  id: 'evt-f3-goal-2',
+  type: CAREER_EVENT_TYPES.GOAL,
+  gameDate: '2026-08-22',
+  source: 'career-match-incidents',
+  visibility: 'internal',
+  entities: { clubCodes: ['MUN', 'MCI'], playerIds: ['p1'] },
+  facts: { fixtureId: 'f3', playerId: 'p1', clubCode: 'MUN', minute: 54, scoreAfter: { homeGoals: 2, awayGoals: 0 } },
+  links: { fixtureId: 'f3' }
+});
+appendCareerEvent(career, {
   id: 'evt-f3-red-1',
   type: CAREER_EVENT_TYPES.RED_CARD,
   gameDate: '2026-08-22',
@@ -77,13 +87,15 @@ assert.match(newsroom.lead.title, /Manchester City/);
 assert.equal(newsroom.lead.timestamp, 'Hoje');
 assert.equal(newsroom.lead.mediaIntent.fixtureId, 'f3');
 assert.deepEqual(newsroom.lead.mediaIntent.clubCodes, ['MUN', 'MCI']);
+assert.deepEqual(newsroom.lead.mediaIntent.playerIds, ['p1'], 'two-goal scorer should become the factual match hero');
+assert.equal(newsroom.lead.mediaIntent.preference, 'player', 'match hero should drive contextual player media before stadium fallback');
 assert.ok(newsroom.activeStoryArc);
 assert.equal(newsroom.activeStoryArc.type, 'form.winning-streak');
 assert.equal(newsroom.lead.storyArcId, newsroom.activeStoryArc.id);
 assert.equal(newsroom.lead.factualClaims[0].kind, 'score');
-assert.equal(newsroom.lead.factualClaims.some(claim => claim.kind === 'goal' && claim.playerId === 'p1' && claim.minute === 18), true, 'match article should include scorer timeline claim');
+assert.equal(newsroom.lead.factualClaims.filter(claim => claim.kind === 'goal' && claim.playerId === 'p1').length, 2, 'match article should include both scorer timeline claims');
 assert.equal(newsroom.lead.factualClaims.some(claim => claim.kind === 'red-card' && claim.playerId === 'p3' && claim.minute === 66), true, 'match article should include red-card timeline claim');
-assert.equal(newsroom.feed.some(article => article.eventId === 'evt-f3-goal-1'), false, 'internal goal fact must not become standalone feed spam');
+assert.equal(newsroom.feed.some(article => article.eventId === 'evt-f3-goal-1' || article.eventId === 'evt-f3-goal-2'), false, 'internal goal facts must not become standalone feed spam');
 const redArticle = newsroom.feed.find(article => article.eventId === 'evt-f3-red-1');
 assert.ok(redArticle, 'public red card should be eligible for its own story');
 assert.match(redArticle.title, /City Example/);
