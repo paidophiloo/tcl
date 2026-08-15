@@ -3,6 +3,7 @@ import { CAREER_EVENT_TYPES } from './event-ledger.js';
 const REQUIRED_FACTS = Object.freeze({
   [CAREER_EVENT_TYPES.MATCH_PLAYED]: ['fixtureId', 'homeCode', 'awayCode', 'homeGoals', 'awayGoals'],
   [CAREER_EVENT_TYPES.GOAL]: ['fixtureId', 'playerId', 'clubCode', 'minute'],
+  [CAREER_EVENT_TYPES.RED_CARD]: ['fixtureId', 'playerId', 'clubCode', 'minute'],
   [CAREER_EVENT_TYPES.INJURY]: ['daysOut'],
   [CAREER_EVENT_TYPES.TRANSFER_COMPLETED]: ['playerId', 'toClubCode'],
   [CAREER_EVENT_TYPES.LOAN_COMPLETED]: ['playerId', 'fromClubCode', 'toClubCode']
@@ -67,9 +68,9 @@ export function validateNewsFact(event) {
     if (event.facts?.homeCode === event.facts?.awayCode) errors.push('same-club-match');
   }
   if (event.type === CAREER_EVENT_TYPES.INJURY && finiteScore(event.facts?.daysOut) < 0) errors.push('days-out-invalid');
-  if (event.type === CAREER_EVENT_TYPES.GOAL) {
+  if ([CAREER_EVENT_TYPES.GOAL, CAREER_EVENT_TYPES.RED_CARD].includes(event.type)) {
     const minute = finiteScore(event.facts?.minute);
-    if (minute < 1 || minute > 130) errors.push('goal-minute-invalid');
+    if (minute < 1 || minute > 130) errors.push('match-minute-invalid');
   }
   if (event.type === CAREER_EVENT_TYPES.TRANSFER_COMPLETED && !event.facts?.freeAgent && !event.facts?.fromClubCode) {
     errors.push('fact-missing:fromClubCode');
@@ -109,8 +110,29 @@ export function factualClaimsFromEvent(event) {
   if (event.type === CAREER_EVENT_TYPES.MATCH_PLAYED) {
     claims.push({ kind: 'score', homeCode: event.facts.homeCode, awayCode: event.facts.awayCode, homeGoals: event.facts.homeGoals, awayGoals: event.facts.awayGoals });
   }
+  if (event.type === CAREER_EVENT_TYPES.GOAL) {
+    claims.push({
+      kind: 'goal',
+      playerId: event.facts.playerId,
+      clubCode: event.facts.clubCode,
+      minute: event.facts.minute,
+      assistPlayerId: event.facts.assistPlayerId || null,
+      isPenalty: Boolean(event.facts.isPenalty),
+      scoreAfter: event.facts.scoreAfter || null
+    });
+  }
+  if (event.type === CAREER_EVENT_TYPES.RED_CARD) {
+    claims.push({
+      kind: 'red-card',
+      playerId: event.facts.playerId,
+      clubCode: event.facts.clubCode,
+      minute: event.facts.minute,
+      reason: event.facts.reason || null,
+      scoreAtIncident: event.facts.scoreAtIncident || null
+    });
+  }
   if (event.type === CAREER_EVENT_TYPES.INJURY) {
-    claims.push({ kind: 'injury', playerIds: event.entities?.playerIds || [], daysOut: event.facts.daysOut });
+    claims.push({ kind: 'injury', playerIds: event.entities?.playerIds || [], daysOut: event.facts.daysOut, minute: event.facts.minute || null, fixtureId: event.facts.fixtureId || null });
   }
   if ([CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) {
     claims.push({ kind: 'move', playerId: event.facts.playerId, fromClubCode: event.facts.fromClubCode, toClubCode: event.facts.toClubCode, fee: event.facts.fee ?? null });
