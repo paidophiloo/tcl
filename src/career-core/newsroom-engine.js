@@ -2,7 +2,7 @@ import { CAREER_EVENT_TYPES, latestCareerEvents } from './event-ledger.js';
 import { strongestStoryArc } from './newsroom-story-arcs.js';
 import { factualClaimsFromEvent, rankNewsEvents } from './newsroom-editorial.js';
 import { selectEditorialEdition } from './newsroom-edition.js';
-import { MILESTONE_KINDS, NEWSROOM_PERFORMANCE_EVENT_TYPES, PERFORMANCE_KINDS } from './newsroom-performance-types.js';
+import { MILESTONE_KINDS, NEWSROOM_PERFORMANCE_EVENT_TYPES, PERFORMANCE_KINDS, SEASON_RECORD_KINDS } from './newsroom-performance-types.js';
 
 function nameOf(code, resolver, fallback = code) {
   if (!code) return fallback || '';
@@ -142,7 +142,38 @@ function milestoneCopy(event, context) {
   if (season) {
     return { label: 'MARCA', title: `${player} alcança ${season.value} gols na temporada`, summary: `${player} atingiu a marca de ${season.value} gols após o jogo mais recente pelo ${club}.` };
   }
-  return { label: 'PRIMEIRO GOL', title: `${player} marca pela primeira vez com a camisa do ${club}`, summary: 'É o primeiro gol registrado pelo jogador para este clube no histórico da carreira.' };
+  return { label: 'PRIMEIRO GOL', title: `${player} marca pela primeira vez com a camisa do ${club}`, summary: 'É o primeiro gol registrado após a chegada do jogador ao clube dentro desta carreira.' };
+}
+
+function seasonRecordCopy(event, context) {
+  const facts = event.facts || {};
+  if (facts.recordKind === SEASON_RECORD_KINDS.TOP_SCORER_LEAD) {
+    const player = playerNameOf(facts.playerId, context.playerResolver);
+    const club = nameOf(facts.clubCode, context.clubResolver, 'equipe');
+    return {
+      label: 'ARTILHARIA',
+      title: `${player} assume liderança isolada da artilharia com ${Number(facts.goals) || 0} gols`,
+      summary: `${player}, do ${club}, passa a ocupar sozinho o topo entre os artilheiros da temporada simulada até esta data.`
+    };
+  }
+  if (facts.recordKind === SEASON_RECORD_KINDS.BIGGEST_WIN_SO_FAR) {
+    const winner = nameOf(facts.winnerCode, context.clubResolver, 'Equipe');
+    return {
+      label: 'MARCA DA TEMPORADA',
+      title: `${winner} estabelece a maior vitória por margem da temporada até aqui`,
+      summary: `${nameOf(facts.homeCode, context.clubResolver)} ${scoreline(facts)} ${nameOf(facts.awayCode, context.clubResolver)}: diferença de ${Number(facts.margin) || 0} gols, a maior registrada no save até esta data.`
+    };
+  }
+  if (facts.recordKind === SEASON_RECORD_KINDS.HIGHEST_SCORING_MATCH_SO_FAR) {
+    const home = nameOf(facts.homeCode, context.clubResolver);
+    const away = nameOf(facts.awayCode, context.clubResolver);
+    return {
+      label: 'MARCA DA TEMPORADA',
+      title: `${home} x ${away} vira o jogo mais goleador da temporada até aqui`,
+      summary: `O confronto terminou ${scoreline(facts)} e somou ${Number(facts.totalGoals) || 0} gols, maior total registrado no save até esta data.`
+    };
+  }
+  return { label: 'MARCA DA TEMPORADA', title: 'Nova marca sazonal registrada', summary: 'O recorde se refere somente à temporada simulada e ao histórico presente no save.' };
 }
 
 function transferCopy(event, context) {
@@ -185,6 +216,7 @@ function copyFor(event, context) {
   if (event.type === CAREER_EVENT_TYPES.INJURY) return injuryCopy(event, context);
   if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE) return performanceCopy(event, context);
   if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE) return milestoneCopy(event, context);
+  if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.SEASON_RECORD) return seasonRecordCopy(event, context);
   if ([CAREER_EVENT_TYPES.TRANSFER_LISTED, CAREER_EVENT_TYPES.TRANSFER_OFFERED, CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) return transferCopy(event, context);
   if (event.type === CAREER_EVENT_TYPES.MANAGER_PRESS) return pressCopy(event, context);
   return genericCopy(event, context);
