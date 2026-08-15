@@ -46,6 +46,25 @@ function leadFallbackImage(career) {
   return `/assets/clubs/2026-27/${code}/stadium.webp`;
 }
 
+function ensureNewsNavigation() {
+  const nav = document.querySelector('.cp-side nav');
+  if (!nav) return;
+  let button = nav.querySelector('[data-newsroom-route]');
+  if (!button) {
+    button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.newsroomRoute = NEWS_ROUTE;
+    button.innerHTML = '<i>◆</i><span>Newsroom</span>';
+    button.addEventListener('click', () => { window.location.hash = NEWS_ROUTE; });
+    const inbox = nav.querySelector('[data-route="inbox"]');
+    if (inbox) nav.insertBefore(button, inbox);
+    else nav.append(button);
+  }
+  const active = route() === NEWS_ROUTE;
+  button.classList.toggle('active', active);
+  if (active) nav.querySelectorAll('[data-route].active').forEach(item => item.classList.remove('active'));
+}
+
 async function hydrateHomeCard() {
   const slide = document.querySelector(HOME_NEWS_SELECTOR);
   if (!slide || route() === NEWS_ROUTE) return;
@@ -202,12 +221,15 @@ async function renderNewsroomPage() {
 async function installProjection() {
   installQueued = false;
   if (!browserReady()) return;
+  ensureNewsNavigation();
   if (route() === NEWS_ROUTE) {
     await renderNewsroomPage();
+    ensureNewsNavigation();
     return;
   }
   document.querySelector(CONTENT_SELECTOR)?.classList.remove('cp-content-newsroom');
   await hydrateHomeCard();
+  ensureNewsNavigation();
 }
 
 function scheduleProjection() {
