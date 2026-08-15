@@ -45,6 +45,7 @@ function sourceLabel(source) {
     'career-results-reconciliation': 'Motor de partidas',
     'career-match-incidents': 'Linha do tempo da partida',
     'career-performance-derivation': 'Análise factual de performance',
+    'career-season-record-derivation': 'Auditoria sazonal do Event Ledger',
     'match-engine': 'Motor de partidas',
     'living-world-ledger': 'Living World',
     'newsroom-press-conference': 'Coletiva do treinador',
@@ -62,6 +63,19 @@ function milestoneText(item, clubCode) {
   if (item?.kind === 'first-club-goal') return `primeiro gol registrado pelo ${clubName(clubCode)}`;
   if (item?.kind === 'season-goals') return `${Number(item.value) || 0} gols na temporada`;
   return null;
+}
+
+function seasonRecordText(claim) {
+  if (claim.recordKind === 'top-scorer-lead') {
+    return `${playerName(claim.playerId)} assume a liderança isolada da artilharia da temporada com ${Number(claim.goals) || 0} gols`;
+  }
+  if (claim.recordKind === 'biggest-win-so-far') {
+    return `${clubName(claim.homeCode)} ${Number(claim.homeGoals) || 0}–${Number(claim.awayGoals) || 0} ${clubName(claim.awayCode)} · margem de ${Number(claim.margin) || 0} gols, maior da temporada no save até esta data`;
+  }
+  if (claim.recordKind === 'highest-scoring-match-so-far') {
+    return `${clubName(claim.homeCode)} ${Number(claim.homeGoals) || 0}–${Number(claim.awayGoals) || 0} ${clubName(claim.awayCode)} · ${Number(claim.totalGoals) || 0} gols, maior total da temporada no save até esta data`;
+  }
+  return 'Nova marca da temporada registrada a partir dos resultados canônicos do save';
 }
 
 function claimText(claim) {
@@ -97,6 +111,7 @@ function claimText(claim) {
     const milestones = (claim.milestones || []).map(item => milestoneText(item, claim.clubCode)).filter(Boolean);
     return `${playerName(claim.playerId)}: ${milestones.join(' · ') || 'marco registrado'}${claim.seasonGoalsAfter != null ? ` · total da temporada: ${Number(claim.seasonGoalsAfter) || 0}` : ''}`;
   }
+  if (claim.kind === 'season-record') return seasonRecordText(claim);
   return null;
 }
 
@@ -146,7 +161,7 @@ function overlayMarkup(article, event, media) {
             <div><dt>Categoria</dt><dd>${esc(article.category === 'club' ? 'Seu clube' : 'Mundo')}</dd></div>
             <div><dt>Validação</dt><dd>FactValidator ✓</dd></div>
           </dl>
-          <small>A interface não adiciona placares, transferências, lesões, cartões, gols, marcos ou declarações que não existam no estado da carreira.</small>
+          <small>A interface não adiciona placares, transferências, lesões, cartões, gols, marcos, recordes históricos ou declarações que não existam no estado da carreira.</small>
         </aside>
       </div>
     </article>
