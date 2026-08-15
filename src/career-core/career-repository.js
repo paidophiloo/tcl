@@ -5,6 +5,7 @@ import { archiveNewsroomSnapshot, ensureNewsroomArchive } from './newsroom-archi
 import { buildCareerNewsroom } from './newsroom-engine.js';
 import { reconcileWorldNewsEvents } from './newsroom-world-bridge.js';
 import { CLUB_BY_CODE } from './season-2026-27-live.js';
+import { WORLD_PLAYER_BY_ID } from '../career-world/world-player-database.js';
 
 const DB_NAME = "touchline-career-v5";
 const DB_VERSION = 1;
@@ -197,7 +198,8 @@ function reconcileStoredCareer(save) {
   const newsroom = buildCareerNewsroom(snapshot, {
     userClubCode: snapshot.clubCode,
     currentDate: snapshot.currentDate,
-    clubResolver: code => CLUB_BY_CODE.get(code)?.name || code
+    clubResolver: code => CLUB_BY_CODE.get(code)?.name || code,
+    playerResolver: playerId => WORLD_PLAYER_BY_ID.get(playerId)?.name || playerId
   });
   snapshot.newsroom = newsroom;
   archiveNewsroomSnapshot(snapshot, newsroom);
