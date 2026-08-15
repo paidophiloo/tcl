@@ -23,6 +23,7 @@ function recentClubResults(events, clubCode, limit = RECENT_WINDOW) {
     .filter(event => event.type === CAREER_EVENT_TYPES.MATCH_PLAYED)
     .map(event => ({ event, result: clubResult(event, clubCode) }))
     .filter(item => item.result)
+    .sort((left, right) => left.event.gameDate.localeCompare(right.event.gameDate) || left.event.id.localeCompare(right.event.id))
     .slice(-limit);
 }
 
@@ -46,6 +47,45 @@ function streakArc(events, clubCode) {
     strength: Math.min(100, 45 + length * 12),
     facts: { streak: length, result: latest },
     eventIds: supporting
+  };
+}
+
+function scorerFormArc(events, clubCode) {
+  const recentMatches = events
+    .filter(event => event.type === CAREER_EVENT_TYPES.MATCH_PLAYED && event.entities?.clubCodes?.includes(clubCode))
+    .sort((left, right) => left.gameDate.localeCompare(right.gameDate) || left.id.localeCompare(right.id))
+    .slice(-5);
+  if (recentMatches.length < 2) return null;
+  const fixtureIds = new Set(recentMatches.map(event => String(event.facts?.fixtureId || event.links?.fixtureId || '')).filter(Boolean));
+  const rows = new Map();
+  for (const event of events) {
+    if (event.type !== CAREER_EVENT_TYPES.GOAL || event.facts?.clubCode !== clubCode) continue;
+    const fixtureId = String(event.facts?.fixtureId || event.links?.fixtureId || '');
+    if (!fixtureIds.has(fixtureId) || !event.facts?.playerId) continue;
+    const playerId = String(event.facts.playerId);
+    const row = rows.get(playerId) || { playerId, goals: 0, fixtures: new Set(), goalEvents: [], latestDate: event.gameDate };
+    row.goals += 1;
+    row.fixtures.add(fixtureId);
+    row.goalEvents.push(event);
+    if (event.gameDate > row.latestDate) row.latestDate = event.gameDate;
+    rows.set(playerId, row);
+  }
+  const best = [...rows.values()]
+    .filter(row => row.goals >= 4 && row.fixtures.size >= 2)
+    .sort((left, right) => right.goals - left.goals || right.fixtures.size - left.fixtures.size || right.latestDate.localeCompare(left.latestDate) || left.playerId.localeCompare(right.playerId))[0];
+  if (!best) return null;
+  const supportingMatches = recentMatches.filter(event => best.fixtures.has(String(event.facts?.fixtureId || event.links?.fixtureId || '')));
+  return {
+    schemaVersion: ARC_SCHEMA_VERSION,
+    id: `arc-scorer-${clubCode}-${best.playerId}`,
+    type: 'player.scoring-form',
+    subject: { clubCode, playerId: best.playerId },
+    status: 'active',
+    startedOn: [...best.goalEvents].sort((a, b) => a.gameDate.localeCompare(b.gameDate))[0].gameDate,
+    updatedOn: best.latestDate,
+    strength: Math.min(100, 40 + best.goals * 8 + best.fixtures.size * 4),
+    facts: { playerId: best.playerId, goals: best.goals, matchesScoredIn: best.fixtures.size, windowMatches: recentMatches.length },
+    eventIds: [...supportingMatches.map(event => event.id), ...best.goalEvents.map(event => event.id)]
   };
 }
 
@@ -112,7 +152,7 @@ export function buildStoryArcs(career, options = {}) {
   }
   const arcs = [];
   for (const clubCode of clubCodes) {
-    for (const arc of [streakArc(events, clubCode), injuryArc(events, clubCode), transferArc(events, clubCode)]) {
+    for (const arc of [streakArc(events, clubCode), scorerFormArc(events, clubCode), injuryArc(events, clubCode), transferArc(events, clubCode)]) {
       if (arc) arcs.push(arc);
     }
   }
