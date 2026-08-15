@@ -3,9 +3,12 @@ import { readFile } from 'node:fs/promises';
 
 const ui = await readFile(new URL('../src/career-newsroom-ui.js', import.meta.url), 'utf8');
 const css = await readFile(new URL('../src/career-newsroom-ui.css', import.meta.url), 'utf8');
+const pressUi = await readFile(new URL('../src/career-newsroom-press-ui.js', import.meta.url), 'utf8');
+const pressCss = await readFile(new URL('../src/career-newsroom-press-ui.css', import.meta.url), 'utf8');
 const index = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 
 assert.match(index, /career-home-v2\.js[\s\S]*career-newsroom-ui\.js/, 'newsroom projection should mount after the existing home module');
+assert.match(index, /career-newsroom-ui\.js[\s\S]*career-newsroom-press-ui\.js/, 'press UI should mount after the newsroom projection');
 assert.match(ui, /const NEWS_ROUTE = 'news'/);
 assert.match(ui, /const HOME_NEWS_SELECTOR = '\.tl-news-slide'/);
 assert.match(ui, /resolveNewsroomMedia\(lead/);
@@ -23,6 +26,15 @@ assert.match(css, /\.cp-content\.cp-content-newsroom/);
 assert.match(css, /\.tn-article\.is-featured/);
 assert.match(css, /@media\(max-width:760px\)/);
 
+assert.match(pressUi, /buildPressConference\(career\)/);
+assert.match(pressUi, /recordPressResponse\(career, conference/);
+assert.match(pressUi, /await repo\.save\(career\)/, 'press response must persist before newsroom refresh');
+assert.match(pressUi, /data-press-answer/);
+assert.match(pressUi, /manager quotes only enter the ledger after an explicit player-selected response/);
+assert.match(pressCss, /\.tn-press-overlay/);
+assert.match(pressCss, /\.tn-press-options>button\.is-selected/);
+
 assert.doesNotMatch(ui, /Math\.random|Date\.now\(\).*title|fake|mock/i, 'newsroom UI must not fabricate editorial facts');
+assert.doesNotMatch(pressUi, /Math\.random|fake|mock/i, 'press UI must only expose deterministic authored choices');
 
 console.log('career newsroom ui smoke: ok');
