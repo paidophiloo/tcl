@@ -5,6 +5,7 @@ import { archiveNewsroomSnapshot, ensureNewsroomArchive } from './newsroom-archi
 import { buildCareerNewsroom } from './newsroom-engine.js';
 import { reconcileMatchNewsEvents } from './newsroom-match-bridge.js';
 import { reconcilePerformanceNewsEvents } from './newsroom-performance-bridge.js';
+import { reconcileSeasonRecordNewsEvents } from './newsroom-records-bridge.js';
 import { reconcileWorldNewsEvents } from './newsroom-world-bridge.js';
 import { CLUB_BY_CODE } from './season-2026-27-live.js';
 import { WORLD_PLAYER_BY_ID } from '../career-world/world-player-database.js';
@@ -198,6 +199,7 @@ function reconcileStoredCareer(save) {
   reconcileWorldNewsEvents(snapshot);
   reconcileMatchNewsEvents(snapshot);
   reconcilePerformanceNewsEvents(snapshot);
+  reconcileSeasonRecordNewsEvents(snapshot);
   ensureNewsroomArchive(snapshot);
   const newsroom = buildCareerNewsroom(snapshot, {
     userClubCode: snapshot.clubCode,
