@@ -49,6 +49,7 @@ jobs:
           node --check src/career-core/event-ledger.js
           node --check src/career-core/newsroom-story-arcs.js
           node --check src/career-core/newsroom-editorial.js
+          node --check src/career-core/newsroom-engine.js
           node --check src/career-mailbox.js
           node --check src/career-league-hub.js
           node --check src/career-home-processing.js
@@ -76,6 +77,7 @@ jobs:
           node --check tests/living-market-v2-smoke.mjs
           node --check tests/career-event-ledger-smoke.mjs
           node --check tests/career-newsroom-core-smoke.mjs
+          node --check tests/career-newsroom-engine-smoke.mjs
 
       - name: Build production bundle and run all integrity tests
         run: npm run build
@@ -84,6 +86,7 @@ jobs:
         run: |
           node tests/career-event-ledger-smoke.mjs
           node tests/career-newsroom-core-smoke.mjs
+          node tests/career-newsroom-engine-smoke.mjs
 
       - name: Test World Player Database builder
         run: node tests/world-player-database-smoke.mjs
