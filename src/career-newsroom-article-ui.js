@@ -44,6 +44,7 @@ function sourceLabel(source) {
   const labels = {
     'career-results-reconciliation': 'Motor de partidas',
     'career-match-incidents': 'Linha do tempo da partida',
+    'career-performance-derivation': 'Análise factual de performance',
     'match-engine': 'Motor de partidas',
     'living-world-ledger': 'Living World',
     'newsroom-press-conference': 'Coletiva do treinador',
@@ -55,6 +56,12 @@ function sourceLabel(source) {
 function scoreSuffix(score) {
   if (!score || !Number.isFinite(Number(score.homeGoals)) || !Number.isFinite(Number(score.awayGoals))) return '';
   return ` · placar ${Number(score.homeGoals)}–${Number(score.awayGoals)}`;
+}
+
+function milestoneText(item, clubCode) {
+  if (item?.kind === 'first-club-goal') return `primeiro gol registrado pelo ${clubName(clubCode)}`;
+  if (item?.kind === 'season-goals') return `${Number(item.value) || 0} gols na temporada`;
+  return null;
 }
 
 function claimText(claim) {
@@ -78,6 +85,18 @@ function claimText(claim) {
   if (claim.kind === 'move') {
     return `${playerName(claim.playerId)}: ${clubName(claim.fromClubCode)} → ${clubName(claim.toClubCode)} · ${money(claim.fee)}`;
   }
+  if (claim.kind === 'performance') {
+    const pieces = [];
+    if (Number(claim.goals) > 0) pieces.push(`${Number(claim.goals)} gol${Number(claim.goals) === 1 ? '' : 's'}`);
+    if (Number(claim.assists) > 0) pieces.push(`${Number(claim.assists)} assistência${Number(claim.assists) === 1 ? '' : 's'}`);
+    if ((claim.performanceTypes || []).includes('starter-shutout')) pieces.push('titular em partida em que a equipe não sofreu gols');
+    const milestone = (claim.milestonesReached || []).map(item => milestoneText(item, claim.clubCode)).filter(Boolean);
+    return `${playerName(claim.playerId)} (${clubName(claim.clubCode)}): ${pieces.join(' · ') || 'atuação registrada'}${milestone.length ? ` · ${milestone.join(' · ')}` : ''}`;
+  }
+  if (claim.kind === 'milestone') {
+    const milestones = (claim.milestones || []).map(item => milestoneText(item, claim.clubCode)).filter(Boolean);
+    return `${playerName(claim.playerId)}: ${milestones.join(' · ') || 'marco registrado'}${claim.seasonGoalsAfter != null ? ` · total da temporada: ${Number(claim.seasonGoalsAfter) || 0}` : ''}`;
+  }
   return null;
 }
 
@@ -95,7 +114,7 @@ function factRows(article, event) {
   const rows = (article.factualClaims || []).map(claimText).filter(Boolean);
   if (event?.type === 'manager.press' && event.facts?.quote) rows.push(event.facts.quote);
   if (!rows.length) rows.push('O texto desta matéria foi produzido somente a partir do evento registrado no Event Ledger.');
-  return rows;
+  return [...new Set(rows)];
 }
 
 function overlayMarkup(article, event, media) {
@@ -127,7 +146,7 @@ function overlayMarkup(article, event, media) {
             <div><dt>Categoria</dt><dd>${esc(article.category === 'club' ? 'Seu clube' : 'Mundo')}</dd></div>
             <div><dt>Validação</dt><dd>FactValidator ✓</dd></div>
           </dl>
-          <small>A interface não adiciona placares, transferências, lesões, cartões, gols ou declarações que não existam no estado da carreira.</small>
+          <small>A interface não adiciona placares, transferências, lesões, cartões, gols, marcos ou declarações que não existam no estado da carreira.</small>
         </aside>
       </div>
     </article>
