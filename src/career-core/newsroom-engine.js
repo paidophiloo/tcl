@@ -1,6 +1,6 @@
 import { CAREER_EVENT_TYPES, latestCareerEvents } from './event-ledger.js';
 import { strongestStoryArc } from './newsroom-story-arcs.js';
-import { rankNewsEvents } from './newsroom-editorial.js';
+import { factualClaimsFromEvent, rankNewsEvents } from './newsroom-editorial.js';
 
 function nameOf(code, resolver, fallback = code) {
   if (!code) return fallback || '';
@@ -16,6 +16,15 @@ function playerNameOf(playerId, resolver) {
 
 function scoreline(facts = {}) {
   return `${Number(facts.homeGoals) || 0}–${Number(facts.awayGoals) || 0}`;
+}
+
+function formatFee(value, formatter) {
+  const amount = Number(value) || 0;
+  if (!amount) return null;
+  if (typeof formatter === 'function') return formatter(amount);
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency', currency: 'GBP', notation: 'compact', maximumFractionDigits: 1
+  }).format(amount);
 }
 
 function matchCopy(event, context) {
@@ -73,14 +82,22 @@ function transferCopy(event, context) {
   const facts = event.facts || {};
   const playerId = facts.playerId || event.entities?.playerIds?.[0];
   const player = playerNameOf(playerId, context.playerResolver);
-  const from = nameOf(facts.fromClubCode, context.clubResolver, 'seu clube anterior');
+  const from = nameOf(facts.fromClubCode, context.clubResolver, 'clube anterior');
   const to = nameOf(facts.toClubCode, context.clubResolver, 'novo clube');
+  const fee = formatFee(facts.fee, context.formatMoney);
   if (event.type === CAREER_EVENT_TYPES.TRANSFER_COMPLETED) {
+    if (facts.freeAgent) {
+      return {
+        label: 'MERCADO',
+        title: `${player} assina com o ${to} como agente livre`,
+        summary: 'O jogador chegou sem taxa de transferência e passa a integrar o novo elenco após o acordo contratual.'
+      };
+    }
     return {
       label: 'MERCADO',
       title: `${player} deixa o ${from} e acerta com o ${to}`,
-      summary: facts.fee
-        ? `A transferência foi concluída por ${context.formatMoney?.(facts.fee) || facts.fee}, encerrando a negociação entre os clubes.`
+      summary: fee
+        ? `A transferência foi concluída por ${fee}, encerrando a negociação entre os clubes.`
         : 'Os clubes concluíram a transferência e o jogador passa a integrar o novo elenco.'
     };
   }
@@ -88,11 +105,13 @@ function transferCopy(event, context) {
     return {
       label: 'EMPRÉSTIMO',
       title: `${player} troca o ${from} pelo ${to} por empréstimo`,
-      summary: 'O acordo temporário foi fechado e passa a fazer parte do planejamento esportivo das duas equipes.'
+      summary: facts.endDate
+        ? `O acordo temporário foi fechado até ${facts.endDate} e passa a fazer parte do planejamento esportivo das duas equipes.`
+        : 'O acordo temporário foi fechado e passa a fazer parte do planejamento esportivo das duas equipes.'
     };
   }
   return {
-    label: 'MERCADO',
+    label: facts.loan ? 'EMPRÉSTIMO' : 'MERCADO',
     title: `${player} entra no radar do mercado`,
     summary: 'A movimentação ainda não representa uma transferência concluída e seguirá sendo acompanhada.'
   };
@@ -158,7 +177,7 @@ export function newsroomArticleFromEvent(event, context = {}, editorial = {}) {
     newsworthiness: editorial.score || 0,
     storyArcId: editorial.storyArcId || null,
     mediaIntent: mediaIntentFor(event),
-    factualClaims: editorial.factualClaims || []
+    factualClaims: editorial.factualClaims || factualClaimsFromEvent(event)
   };
 }
 
@@ -176,7 +195,8 @@ export function buildCareerNewsroom(career, context = {}) {
   }, {
     score: item.score,
     tier: item.tier,
-    storyArcId: storyEventIds.has(item.event.id) ? strongest?.id || null : null
+    storyArcId: storyEventIds.has(item.event.id) ? strongest?.id || null : null,
+    factualClaims: factualClaimsFromEvent(item.event)
   }));
   return {
     schemaVersion: 1,
