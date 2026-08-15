@@ -4,7 +4,7 @@ const REQUIRED_FACTS = Object.freeze({
   [CAREER_EVENT_TYPES.MATCH_PLAYED]: ['fixtureId', 'homeCode', 'awayCode', 'homeGoals', 'awayGoals'],
   [CAREER_EVENT_TYPES.GOAL]: ['fixtureId', 'playerId', 'clubCode', 'minute'],
   [CAREER_EVENT_TYPES.INJURY]: ['daysOut'],
-  [CAREER_EVENT_TYPES.TRANSFER_COMPLETED]: ['playerId', 'fromClubCode', 'toClubCode'],
+  [CAREER_EVENT_TYPES.TRANSFER_COMPLETED]: ['playerId', 'toClubCode'],
   [CAREER_EVENT_TYPES.LOAN_COMPLETED]: ['playerId', 'fromClubCode', 'toClubCode']
 });
 
@@ -71,6 +71,9 @@ export function validateNewsFact(event) {
     const minute = finiteScore(event.facts?.minute);
     if (minute < 1 || minute > 130) errors.push('goal-minute-invalid');
   }
+  if (event.type === CAREER_EVENT_TYPES.TRANSFER_COMPLETED && !event.facts?.freeAgent && !event.facts?.fromClubCode) {
+    errors.push('fact-missing:fromClubCode');
+  }
 
   return { valid: errors.length === 0, errors };
 }
@@ -95,7 +98,7 @@ export function scoreNewsworthiness(event, context = {}) {
 export function rankNewsEvents(events = [], context = {}) {
   return events
     .map(event => ({ event, ...scoreNewsworthiness(event, context) }))
-    .filter(item => item.validation.valid && item.score > 0)
+    .filter(item => item.validation.valid && item.score > 0 && item.event.visibility !== 'internal')
     .sort((a, b) => b.score - a.score || b.event.gameDate.localeCompare(a.event.gameDate));
 }
 
