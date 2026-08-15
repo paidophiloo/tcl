@@ -1,4 +1,5 @@
 import { CAREER_EVENT_TYPES } from './event-ledger.js';
+import { NEWSROOM_PERFORMANCE_EVENT_TYPES } from './newsroom-performance-types.js';
 
 const DAY = 86_400_000;
 const MARKET_TYPES = new Set([
@@ -6,6 +7,10 @@ const MARKET_TYPES = new Set([
   CAREER_EVENT_TYPES.TRANSFER_OFFERED,
   CAREER_EVENT_TYPES.TRANSFER_COMPLETED,
   CAREER_EVENT_TYPES.LOAN_COMPLETED
+]);
+const ACHIEVEMENT_TYPES = new Set([
+  NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE,
+  NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE
 ]);
 
 function utcDay(value) {
@@ -33,9 +38,11 @@ function penaltyFor(event, currentDate) {
     : event.type === CAREER_EVENT_TYPES.MANAGER_PRESS ? 8
       : event.type === CAREER_EVENT_TYPES.TRANSFER_OFFERED ? 8
         : event.type === CAREER_EVENT_TYPES.INJURY ? 4
-          : MARKET_TYPES.has(event.type) ? 5
-            : 5;
-  const grace = event.type === CAREER_EVENT_TYPES.INJURY || event.type === CAREER_EVENT_TYPES.TRANSFER_COMPLETED ? 1 : 0;
+          : event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE ? 4
+            : event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE ? 6
+              : MARKET_TYPES.has(event.type) ? 5
+                : 5;
+  const grace = event.type === CAREER_EVENT_TYPES.INJURY || event.type === CAREER_EVENT_TYPES.TRANSFER_COMPLETED || event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE ? 1 : 0;
   return Math.max(0, age - grace) * perDay;
 }
 
@@ -49,6 +56,13 @@ function marketStage(event) {
   if (event.type === CAREER_EVENT_TYPES.TRANSFER_OFFERED) return 2;
   if (event.type === CAREER_EVENT_TYPES.TRANSFER_LISTED) return 1;
   return 0;
+}
+
+function achievementKey(event) {
+  if (!ACHIEVEMENT_TYPES.has(event.type)) return null;
+  const fixtureId = event.facts?.fixtureId || event.links?.fixtureId;
+  const playerId = event.facts?.playerId || event.entities?.playerIds?.[0];
+  return fixtureId && playerId ? `${fixtureId}:${playerId}` : null;
 }
 
 function applyRecency(row, currentDate) {
@@ -77,13 +91,22 @@ export function selectEditorialEdition(ranked = [], context = {}) {
     .sort((a, b) => b.score - a.score || b.event.gameDate.localeCompare(a.event.gameDate));
 
   const bestMarketStory = new Map();
+  const bestAchievementStory = new Map();
   for (const row of recencyRanked) {
-    const key = marketPlayerKey(row.event);
-    if (!key) continue;
-    const current = bestMarketStory.get(key);
-    if (!current || marketStage(row.event) > marketStage(current.event)
-      || (marketStage(row.event) === marketStage(current.event) && row.event.gameDate > current.event.gameDate)) {
-      bestMarketStory.set(key, row);
+    const marketKey = marketPlayerKey(row.event);
+    if (marketKey) {
+      const current = bestMarketStory.get(marketKey);
+      if (!current || marketStage(row.event) > marketStage(current.event)
+        || (marketStage(row.event) === marketStage(current.event) && row.event.gameDate > current.event.gameDate)) {
+        bestMarketStory.set(marketKey, row);
+      }
+    }
+    const achievement = achievementKey(row.event);
+    if (achievement) {
+      const current = bestAchievementStory.get(achievement);
+      if (!current || row.score > current.score || (row.score === current.score && row.event.id < current.event.id)) {
+        bestAchievementStory.set(achievement, row);
+      }
     }
   }
 
@@ -96,6 +119,8 @@ export function selectEditorialEdition(ranked = [], context = {}) {
     if (selected.length >= maxStories) break;
     const marketKey = marketPlayerKey(row.event);
     if (marketKey && bestMarketStory.get(marketKey)?.event.id !== row.event.id) continue;
+    const achievement = achievementKey(row.event);
+    if (achievement && bestAchievementStory.get(achievement)?.event.id !== row.event.id) continue;
     if (marketKey && marketCount >= marketLimit && row.tier !== 'lead') continue;
     if (row.tier === 'wire' && wireCount >= wireLimit) continue;
 
@@ -120,5 +145,5 @@ export const NEWSROOM_EDITION_META = Object.freeze({
   maxStories: 24,
   marketLimit: 6,
   wireLimit: 6,
-  invariant: 'old events decay, future events never publish, and one player negotiation cannot flood the edition'
+  invariant: 'old events decay, future events never publish, one negotiation cannot flood the edition, and one player-match achievement yields one editorial story'
 });
