@@ -64,6 +64,28 @@ function matchCopy(event, context) {
   };
 }
 
+function goalCopy(event, context) {
+  const player = playerNameOf(event.facts?.playerId || event.entities?.playerIds?.[0], context.playerResolver);
+  const club = nameOf(event.facts?.clubCode, context.clubResolver, 'sua equipe');
+  const minute = Number(event.facts?.minute) || 0;
+  return {
+    label: 'GOL',
+    title: `${player} marca para o ${club}`,
+    summary: `${event.facts?.isPenalty ? 'De pênalti, ' : ''}${player} balançou a rede aos ${minute} minutos.`
+  };
+}
+
+function redCardCopy(event, context) {
+  const player = playerNameOf(event.facts?.playerId || event.entities?.playerIds?.[0], context.playerResolver);
+  const club = nameOf(event.facts?.clubCode, context.clubResolver, 'sua equipe');
+  const minute = Number(event.facts?.minute) || 0;
+  return {
+    label: 'DISCIPLINA',
+    title: `${player} é expulso pelo ${club}`,
+    summary: `O cartão vermelho aos ${minute} minutos alterou o contexto da partida e passou a fazer parte do registro oficial do jogo.`
+  };
+}
+
 function injuryCopy(event, context) {
   const playerId = event.entities?.playerIds?.[0];
   const clubCode = event.entities?.clubCodes?.[0];
@@ -142,6 +164,8 @@ function genericCopy(event, context) {
 
 function copyFor(event, context) {
   if (event.type === CAREER_EVENT_TYPES.MATCH_PLAYED) return matchCopy(event, context);
+  if (event.type === CAREER_EVENT_TYPES.GOAL) return goalCopy(event, context);
+  if (event.type === CAREER_EVENT_TYPES.RED_CARD) return redCardCopy(event, context);
   if (event.type === CAREER_EVENT_TYPES.INJURY) return injuryCopy(event, context);
   if ([CAREER_EVENT_TYPES.TRANSFER_LISTED, CAREER_EVENT_TYPES.TRANSFER_OFFERED, CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) return transferCopy(event, context);
   if (event.type === CAREER_EVENT_TYPES.MANAGER_PRESS) return pressCopy(event, context);
@@ -161,6 +185,24 @@ function mediaIntentFor(event) {
     fixtureId: event.links?.fixtureId || event.facts?.fixtureId || null,
     preference: event.entities?.playerIds?.length ? 'player' : event.entities?.clubCodes?.length ? 'club' : 'competition'
   };
+}
+
+function matchTimelineClaims(matchEvent, allEvents) {
+  const fixtureId = matchEvent?.facts?.fixtureId || matchEvent?.links?.fixtureId;
+  if (!fixtureId) return [];
+  const supported = new Set([CAREER_EVENT_TYPES.GOAL, CAREER_EVENT_TYPES.RED_CARD, CAREER_EVENT_TYPES.INJURY]);
+  return allEvents
+    .filter(event => event.id !== matchEvent.id)
+    .filter(event => supported.has(event.type))
+    .filter(event => String(event.facts?.fixtureId || event.links?.fixtureId || '') === String(fixtureId))
+    .sort((left, right) => Number(left.facts?.minute || 999) - Number(right.facts?.minute || 999) || left.id.localeCompare(right.id))
+    .flatMap(event => factualClaimsFromEvent(event));
+}
+
+function claimsForArticle(event, allEvents) {
+  const own = factualClaimsFromEvent(event);
+  if (event.type !== CAREER_EVENT_TYPES.MATCH_PLAYED) return own;
+  return [...own, ...matchTimelineClaims(event, allEvents)];
 }
 
 export function newsroomArticleFromEvent(event, context = {}, editorial = {}) {
@@ -199,7 +241,7 @@ export function buildCareerNewsroom(career, context = {}) {
     score: item.score,
     tier: item.tier,
     storyArcId: storyEventIds.has(item.event.id) ? strongest?.id || null : null,
-    factualClaims: factualClaimsFromEvent(item.event)
+    factualClaims: claimsForArticle(item.event, events)
   }));
   return {
     schemaVersion: 1,
