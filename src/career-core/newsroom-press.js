@@ -3,6 +3,7 @@ import { strongestStoryArc } from './newsroom-story-arcs.js';
 
 const PRESS_SCHEMA_VERSION = 1;
 const MAX_QUESTIONS = 3;
+const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
 
 export const NEWSROOM_PRESS_SCHEMA_VERSION = PRESS_SCHEMA_VERSION;
 
@@ -32,9 +33,10 @@ function resultForClub(event, clubCode) {
   };
 }
 
-function answeredConferenceIds(career) {
+function answeredQuestionIds(career, conferenceId) {
   return new Set(careerEvents(career, { type: CAREER_EVENT_TYPES.MANAGER_PRESS })
-    .map(event => event.facts?.conferenceId)
+    .filter(event => event.facts?.conferenceId === conferenceId)
+    .map(event => event.facts?.questionId)
     .filter(Boolean));
 }
 
@@ -123,20 +125,41 @@ function storyQuestion(arc, managerName) {
   return null;
 }
 
+function conferenceQuestions(career, match, result) {
+  const arc = strongestStoryArc(career, career.clubCode);
+  return [
+    resultQuestion(match, result, career.managerName),
+    rivalryQuestion(match, result, career.managerName),
+    storyQuestion(arc, career.managerName)
+  ].filter(Boolean).slice(0, MAX_QUESTIONS);
+}
+
+function applyPressEffect(career, selected) {
+  const moraleDelta = Number(selected?.effect?.morale) || 0;
+  const pressureDelta = Number(selected?.effect?.pressure) || 0;
+  career.pressState = {
+    mediaPressure: clamp((Number(career.pressState?.mediaPressure) || 50) + pressureDelta, 0, 100),
+    lastTone: selected?.tone || 'measured',
+    lastResponseDate: career.currentDate || null
+  };
+  if (moraleDelta && career.playerState && typeof career.playerState === 'object') {
+    for (const state of Object.values(career.playerState)) {
+      if (!state || typeof state !== 'object') continue;
+      state.morale = clamp((Number(state.morale) || 70) + moraleDelta, 0, 100);
+    }
+  }
+}
+
 export function buildPressConference(career) {
   if (!career?.clubCode) return null;
   const match = latestUserMatch(career);
   if (!match) return null;
   const conferenceId = `press-${match.id}`;
-  if (answeredConferenceIds(career).has(conferenceId)) return null;
   const result = resultForClub(match, career.clubCode);
   if (!result) return null;
-  const arc = strongestStoryArc(career, career.clubCode);
-  const questions = [
-    resultQuestion(match, result, career.managerName),
-    rivalryQuestion(match, result, career.managerName),
-    storyQuestion(arc, career.managerName)
-  ].filter(Boolean).slice(0, MAX_QUESTIONS);
+  const answered = answeredQuestionIds(career, conferenceId);
+  const questions = conferenceQuestions(career, match, result).filter(question => !answered.has(question.id));
+  if (!questions.length) return null;
   return {
     schemaVersion: PRESS_SCHEMA_VERSION,
     id: conferenceId,
@@ -146,6 +169,7 @@ export function buildPressConference(career) {
     opponentCode: result.opponentCode,
     outcome: result.outcome,
     score: { for: result.scored, against: result.conceded },
+    answeredQuestionIds: [...answered],
     questions
   };
 }
@@ -167,7 +191,7 @@ export function recordPressResponse(career, conference, questionId, optionId) {
   if (!question || !selected) return null;
 
   const event = appendCareerEvent(career, {
-    id: `evt-${conference.id}-${question.id}-${selected.id}`,
+    id: `evt-${conference.id}-${question.id}`,
     type: CAREER_EVENT_TYPES.MANAGER_PRESS,
     gameDate: conference.gameDate,
     source: 'newsroom-press-conference',
@@ -193,5 +217,13 @@ export function recordPressResponse(career, conference, questionId, optionId) {
     links: { sourceEventId: conference.sourceEventId }
   });
 
-  return event ? { event, question, selected } : null;
+  if (!event) return null;
+  applyPressEffect(career, selected);
+  return {
+    event,
+    question,
+    selected,
+    remainingQuestions: buildPressConference(career)?.questions?.length || 0,
+    pressState: { ...career.pressState }
+  };
 }
