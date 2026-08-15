@@ -3,12 +3,33 @@ import { strongestStoryArc } from './newsroom-story-arcs.js';
 
 const PRESS_SCHEMA_VERSION = 1;
 const MAX_QUESTIONS = 3;
+const PRESS_WINDOW_DAYS = 1;
+const DAY_MS = 86_400_000;
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
 
 export const NEWSROOM_PRESS_SCHEMA_VERSION = PRESS_SCHEMA_VERSION;
+export const NEWSROOM_PRESS_WINDOW_DAYS = PRESS_WINDOW_DAYS;
 
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+function utcDay(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+  const [year, month, day] = String(value).split('-').map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+function ageDays(gameDate, currentDate) {
+  const game = utcDay(gameDate);
+  const current = utcDay(currentDate);
+  if (game == null || current == null) return 0;
+  return Math.floor((current - game) / DAY_MS);
+}
+
+function addDays(gameDate, days) {
+  const value = utcDay(gameDate);
+  return value == null ? gameDate : new Date(value + days * DAY_MS).toISOString().slice(0, 10);
 }
 
 function latestUserMatch(career) {
@@ -122,6 +143,20 @@ function storyQuestion(arc, managerName) {
       ]
     };
   }
+  if (arc.type === 'player.scoring-form') {
+    const goals = Number(arc.facts?.goals) || 0;
+    const matches = Number(arc.facts?.matchesScoredIn) || 0;
+    const windowMatches = Number(arc.facts?.windowMatches) || 0;
+    return {
+      id: 'story-arc', topic: 'a fase do artilheiro',
+      prompt: `Seu artilheiro soma ${goals} gols e marcou em ${matches} dos últimos ${windowMatches} jogos. Como você administra esse momento?`,
+      options: [
+        option('keep-rhythm', 'measured', 'Preservar o ritmo', `${manager}: "A fase é boa, mas nosso trabalho é criar condições para que ele continue chegando às chances sem carregar o time sozinho."`, { morale: 1, pressure: -1 }),
+        option('praise-scorer', 'ambitious', 'Valorizar o artilheiro', `${manager}: "Ele está sendo decisivo e merece o reconhecimento. Queremos jogadores que assumam responsabilidade nos grandes momentos."`, { morale: 2, pressure: 2 }),
+        option('team-credit', 'collective', 'Dividir o mérito', `${manager}: "Os gols aparecem no nome de um jogador, mas começam no trabalho coletivo. O mérito dessa fase também é do time."`, { morale: 2, pressure: 0 })
+      ]
+    };
+  }
   return null;
 }
 
@@ -154,6 +189,8 @@ export function buildPressConference(career) {
   if (!career?.clubCode) return null;
   const match = latestUserMatch(career);
   if (!match) return null;
+  const pressAge = ageDays(match.gameDate, career.currentDate);
+  if (pressAge < 0 || pressAge > PRESS_WINDOW_DAYS) return null;
   const conferenceId = `press-${match.id}`;
   const result = resultForClub(match, career.clubCode);
   if (!result) return null;
@@ -164,6 +201,8 @@ export function buildPressConference(career) {
     schemaVersion: PRESS_SCHEMA_VERSION,
     id: conferenceId,
     gameDate: match.gameDate,
+    expiresOn: addDays(match.gameDate, PRESS_WINDOW_DAYS),
+    ageDays: pressAge,
     sourceEventId: match.id,
     clubCode: career.clubCode,
     opponentCode: result.opponentCode,
