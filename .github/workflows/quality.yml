@@ -49,6 +49,7 @@ jobs:
           node --check src/career-core/event-ledger.js
           node --check src/career-core/newsroom-story-arcs.js
           node --check src/career-core/newsroom-editorial.js
+          node --check src/career-core/newsroom-edition.js
           node --check src/career-core/newsroom-engine.js
           node --check src/career-core/newsroom-media.js
           node --check src/career-core/newsroom-archive.js
@@ -90,12 +91,13 @@ jobs:
           node --check tests/career-newsroom-ui-smoke.mjs
           node --check tests/career-newsroom-press-smoke.mjs
           node --check tests/career-newsroom-world-bridge-smoke.mjs
+          node --check tests/career-newsroom-edition-smoke.mjs
           node --check tests/career-newsroom-realism-lab.mjs
 
       - name: Build production bundle and run all integrity tests
         run: npm run build
 
-      - name: Test Newsroom event ledger editorial media UI press and world bridge
+      - name: Test Newsroom event ledger editorial edition media UI press and world bridge
         run: |
           node tests/career-event-ledger-smoke.mjs
           node tests/career-newsroom-core-smoke.mjs
@@ -105,6 +107,7 @@ jobs:
           node tests/career-newsroom-ui-smoke.mjs
           node tests/career-newsroom-press-smoke.mjs
           node tests/career-newsroom-world-bridge-smoke.mjs
+          node tests/career-newsroom-edition-smoke.mjs
           node tests/career-newsroom-realism-lab.mjs
 
       - name: Test World Player Database builder
