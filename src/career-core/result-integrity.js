@@ -15,6 +15,13 @@ function uniquePlayerIds(ids) {
   return output;
 }
 
+function canonicalLineups(result) {
+  const home = uniquePlayerIds(result?.lineups?.home);
+  const homeSet = new Set(home);
+  const away = uniquePlayerIds(result?.lineups?.away).filter(id => !homeSet.has(id));
+  return { home, away };
+}
+
 function nonNegativeInteger(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : 0;
@@ -30,19 +37,30 @@ function sideForEvent(event) {
   return null;
 }
 
+function oppositeSide(side) {
+  return side === 'home' ? 'away' : 'home';
+}
+
+function playerValidForSide(player, side, lineups, fixture) {
+  if (!player || !side) return false;
+  if (lineups[side].includes(player.id)) return true;
+  if (lineups[oppositeSide(side)].includes(player.id)) return false;
+  return player.clubCode === fixture[side];
+}
+
 function ensureLineupPlayer(lineups, side, playerId) {
   if (!lineups[side].includes(playerId)) lineups[side].push(playerId);
 }
 
-function canonicalGoalEvent(event, lineups) {
+function canonicalGoalEvent(event, fixture, lineups) {
   const side = sideForEvent(event);
   if (!side) return null;
   const scorer = PLAYER_BY_ID.get(event.playerId);
-  if (!scorer) return null;
+  if (!playerValidForSide(scorer, side, lineups, fixture)) return null;
 
   const isPenalty = event.isPenalty === true || event.penalty === true || event.goalType === 'penalty';
   const assist = !isPenalty ? PLAYER_BY_ID.get(event.assistPlayerId) : null;
-  const validAssist = assist && assist.id !== scorer.id ? assist : null;
+  const validAssist = assist && assist.id !== scorer.id && playerValidForSide(assist, side, lineups, fixture) ? assist : null;
   ensureLineupPlayer(lineups, side, scorer.id);
   if (validAssist) ensureLineupPlayer(lineups, side, validAssist.id);
 
@@ -60,11 +78,11 @@ function canonicalGoalEvent(event, lineups) {
   };
 }
 
-function canonicalDisciplineEvent(event, lineups) {
+function canonicalDisciplineEvent(event, fixture, lineups) {
   const side = sideForEvent(event);
   if (!side || !['yellow-card', 'red-card'].includes(event?.type)) return null;
   const player = PLAYER_BY_ID.get(event.playerId);
-  if (!player) return null;
+  if (!playerValidForSide(player, side, lineups, fixture)) return null;
   ensureLineupPlayer(lineups, side, player.id);
   return {
     ...event,
@@ -77,11 +95,11 @@ function canonicalDisciplineEvent(event, lineups) {
   };
 }
 
-function canonicalInjuryEvent(event, lineups) {
+function canonicalInjuryEvent(event, fixture, lineups) {
   const side = sideForEvent(event);
   if (!side || event?.type !== 'injury') return null;
   const player = PLAYER_BY_ID.get(event.playerId);
-  if (!player) return null;
+  if (!playerValidForSide(player, side, lineups, fixture)) return null;
   ensureLineupPlayer(lineups, side, player.id);
   const durationDays = Number(event.durationDays);
   return {
@@ -96,26 +114,23 @@ function canonicalInjuryEvent(event, lineups) {
   };
 }
 
-function canonicalMatchEvent(event, lineups) {
+function canonicalMatchEvent(event, fixture, lineups) {
   if (!event || !SUPPORTED_MATCH_EVENT_TYPES.has(event.type)) return null;
-  if (event.type === 'goal') return canonicalGoalEvent(event, lineups);
-  if (event.type === 'injury') return canonicalInjuryEvent(event, lineups);
-  return canonicalDisciplineEvent(event, lineups);
+  if (event.type === 'goal') return canonicalGoalEvent(event, fixture, lineups);
+  if (event.type === 'injury') return canonicalInjuryEvent(event, fixture, lineups);
+  return canonicalDisciplineEvent(event, fixture, lineups);
 }
 
 export function canonicalizeResult(result) {
   const fixture = FIXTURE_BY_ID.get(result?.fixtureId);
   if (!fixture) return null;
 
-  // Historical lineups are authoritative. We deliberately do not compare a player's
-  // static catalog clubCode here because transfers can make that value stale for a
-  // later fixture while the saved match lineup remains the factual source of truth.
-  const lineups = {
-    home: uniquePlayerIds(result?.lineups?.home),
-    away: uniquePlayerIds(result?.lineups?.away)
-  };
+  // Historical lineups are authoritative for players who actually appeared. This
+  // allows a transferred player whose static catalog clubCode is stale to play for
+  // the new club, while still rejecting an incident assigned to the opposite XI.
+  const lineups = canonicalLineups(result);
   const events = (Array.isArray(result?.events) ? result.events : [])
-    .map(event => canonicalMatchEvent(event, lineups))
+    .map(event => canonicalMatchEvent(event, fixture, lineups))
     .filter(Boolean)
     .sort((left, right) => left.minute - right.minute || left.type.localeCompare(right.type));
   const goalEvents = events.filter(event => event.type === 'goal');
