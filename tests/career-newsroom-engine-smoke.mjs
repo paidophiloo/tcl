@@ -15,6 +15,7 @@ const clubs = {
   WHU: { name: 'West Ham United' },
   FUL: { name: 'Fulham' }
 };
+const players = { p1: 'Bruno Example', p2: 'Assist Example', p3: 'City Example' };
 
 for (const [date, id, homeCode, awayCode, homeGoals, awayGoals] of [
   ['2026-08-10', 'f1', 'MUN', 'WHU', 2, 0],
@@ -39,12 +40,33 @@ const derby = appendCareerEvent(career, {
   context: { rivalry: true, titleRace: true, eloUpsetGap: 80 },
   links: { fixtureId: 'f3' }
 });
+appendCareerEvent(career, {
+  id: 'evt-f3-goal-1',
+  type: CAREER_EVENT_TYPES.GOAL,
+  gameDate: '2026-08-22',
+  source: 'career-match-incidents',
+  visibility: 'internal',
+  entities: { clubCodes: ['MUN', 'MCI'], playerIds: ['p1', 'p2'] },
+  facts: { fixtureId: 'f3', playerId: 'p1', clubCode: 'MUN', minute: 18, assistPlayerId: 'p2', scoreAfter: { homeGoals: 1, awayGoals: 0 } },
+  links: { fixtureId: 'f3' }
+});
+appendCareerEvent(career, {
+  id: 'evt-f3-red-1',
+  type: CAREER_EVENT_TYPES.RED_CARD,
+  gameDate: '2026-08-22',
+  source: 'career-match-incidents',
+  entities: { clubCodes: ['MUN', 'MCI'], playerIds: ['p3'] },
+  facts: { fixtureId: 'f3', playerId: 'p3', clubCode: 'MCI', minute: 66, reason: 'serious-foul-play', scoreAtIncident: { homeGoals: 2, awayGoals: 1 } },
+  links: { fixtureId: 'f3' }
+});
 
-const newsroom = buildCareerNewsroom(career, {
+const context = {
   userClubCode: 'MUN',
   currentDate: career.currentDate,
-  clubResolver: clubs
-});
+  clubResolver: clubs,
+  playerResolver: id => players[id] || id
+};
+const newsroom = buildCareerNewsroom(career, context);
 
 assert.equal(newsroom.schemaVersion, 1);
 assert.equal(newsroom.lead.eventId, derby.id);
@@ -58,13 +80,17 @@ assert.deepEqual(newsroom.lead.mediaIntent.clubCodes, ['MUN', 'MCI']);
 assert.ok(newsroom.activeStoryArc);
 assert.equal(newsroom.activeStoryArc.type, 'form.winning-streak');
 assert.equal(newsroom.lead.storyArcId, newsroom.activeStoryArc.id);
+assert.equal(newsroom.lead.factualClaims[0].kind, 'score');
+assert.equal(newsroom.lead.factualClaims.some(claim => claim.kind === 'goal' && claim.playerId === 'p1' && claim.minute === 18), true, 'match article should include scorer timeline claim');
+assert.equal(newsroom.lead.factualClaims.some(claim => claim.kind === 'red-card' && claim.playerId === 'p3' && claim.minute === 66), true, 'match article should include red-card timeline claim');
+assert.equal(newsroom.feed.some(article => article.eventId === 'evt-f3-goal-1'), false, 'internal goal fact must not become standalone feed spam');
+const redArticle = newsroom.feed.find(article => article.eventId === 'evt-f3-red-1');
+assert.ok(redArticle, 'public red card should be eligible for its own story');
+assert.match(redArticle.title, /City Example/);
+assert.equal(redArticle.mediaIntent.preference, 'player');
 
 const snapshot = JSON.stringify(newsroom);
-const rebuilt = buildCareerNewsroom(career, {
-  userClubCode: 'MUN',
-  currentDate: career.currentDate,
-  clubResolver: clubs
-});
+const rebuilt = buildCareerNewsroom(career, context);
 assert.equal(JSON.stringify(rebuilt), snapshot, 'newsroom output must be deterministic for the same save state');
 
 console.log('career newsroom engine smoke: ok');
