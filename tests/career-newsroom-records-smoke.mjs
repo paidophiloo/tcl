@@ -7,9 +7,24 @@ import { buildCareerNewsroom } from '../src/career-core/newsroom-engine.js';
 import { deriveSeasonRecordEvents, reconcileSeasonRecordNewsEvents } from '../src/career-core/newsroom-records-bridge.js';
 import { NEWSROOM_PERFORMANCE_EVENT_TYPES, SEASON_RECORD_KINDS } from '../src/career-core/newsroom-performance-types.js';
 
-const fixtures = [FIXTURES[0], FIXTURES[10], FIXTURES[20], FIXTURES[30]];
-assert.ok(fixtures.every(Boolean), 'test requires four chronological Premier League fixtures');
-const career = createCareer(fixtures[0].home);
+function clubsOf(fixture) {
+  return new Set([fixture.home, fixture.away]);
+}
+
+function excludes(fixture, blocked) {
+  return !blocked.has(fixture.home) && !blocked.has(fixture.away);
+}
+
+const fixtureOne = FIXTURES[0];
+const fixtureTwo = FIXTURES.find(fixture => fixture.date > fixtureOne.date && excludes(fixture, new Set([fixtureOne.home])));
+assert.ok(fixtureTwo);
+const fixtureTwoClubs = clubsOf(fixtureTwo);
+const fixtureThree = FIXTURES.find(fixture => fixture.date > fixtureTwo.date && excludes(fixture, new Set([fixtureOne.home, ...fixtureTwoClubs])));
+assert.ok(fixtureThree);
+const fixtureFour = FIXTURES.find(fixture => fixture.date > fixtureThree.date && excludes(fixture, new Set([fixtureOne.home, fixtureThree.home])));
+assert.ok(fixtureFour);
+const fixtures = [fixtureOne, fixtureTwo, fixtureThree, fixtureFour];
+const career = createCareer(fixtureOne.home);
 
 function scorerFrom(lineup) {
   return lineup.map(id => PLAYER_BY_ID.get(id)).find(player => player?.group === 'FWD') || PLAYER_BY_ID.get(lineup[0]);
@@ -28,6 +43,7 @@ const lineups = fixtures.map(fixture => ({ home: autoPickLineup(fixture.home), a
 const scorerOne = scorerFrom(lineups[0].home);
 const scorerTwo = scorerFrom(lineups[2].home);
 assert.ok(scorerOne && scorerTwo);
+assert.notEqual(scorerOne.clubCode, scorerTwo.clubCode, 'record scenario must use distinct scorer clubs');
 
 career.results = {
   [fixtures[0].id]: resultWithGoals(fixtures[0], Array(3).fill(scorerOne.id), []),
