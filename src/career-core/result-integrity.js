@@ -2,13 +2,13 @@ import { PLAYER_BY_ID } from './career-core.js';
 import { FIXTURES } from './season-2026-27-live.js';
 
 const FIXTURE_BY_ID = new Map(FIXTURES.map(fixture => [fixture.id, fixture]));
+const SUPPORTED_MATCH_EVENT_TYPES = new Set(['goal', 'yellow-card', 'red-card', 'injury']);
 
-function uniquePlayerIds(ids, clubCode) {
+function uniquePlayerIds(ids) {
   const seen = new Set();
   const output = [];
   for (const id of Array.isArray(ids) ? ids : []) {
-    const player = PLAYER_BY_ID.get(id);
-    if (!player || player.clubCode !== clubCode || seen.has(id)) continue;
+    if (!PLAYER_BY_ID.has(id) || seen.has(id)) continue;
     seen.add(id);
     output.push(id);
   }
@@ -20,25 +20,37 @@ function nonNegativeInteger(value) {
   return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : 0;
 }
 
-function canonicalGoalEvent(event, fixture, lineups) {
-  if (!event || event.type !== 'goal') return null;
-  const side = event.side === 'away' ? 'away' : event.side === 'home' ? 'home' : null;
+function canonicalMinute(value) {
+  return Math.max(1, Math.min(120, nonNegativeInteger(value) || 1));
+}
+
+function sideForEvent(event) {
+  if (event?.side === 'home') return 'home';
+  if (event?.side === 'away') return 'away';
+  return null;
+}
+
+function ensureLineupPlayer(lineups, side, playerId) {
+  if (!lineups[side].includes(playerId)) lineups[side].push(playerId);
+}
+
+function canonicalGoalEvent(event, lineups) {
+  const side = sideForEvent(event);
   if (!side) return null;
-  const clubCode = fixture[side];
   const scorer = PLAYER_BY_ID.get(event.playerId);
-  if (!scorer || scorer.clubCode !== clubCode) return null;
+  if (!scorer) return null;
 
   const isPenalty = event.isPenalty === true || event.penalty === true || event.goalType === 'penalty';
   const assist = !isPenalty ? PLAYER_BY_ID.get(event.assistPlayerId) : null;
-  const validAssist = assist && assist.clubCode === clubCode && assist.id !== scorer.id ? assist : null;
-  if (!lineups[side].includes(scorer.id)) lineups[side].push(scorer.id);
-  if (validAssist && !lineups[side].includes(validAssist.id)) lineups[side].push(validAssist.id);
+  const validAssist = assist && assist.id !== scorer.id ? assist : null;
+  ensureLineupPlayer(lineups, side, scorer.id);
+  if (validAssist) ensureLineupPlayer(lineups, side, validAssist.id);
 
   return {
     ...event,
     type: 'goal',
     side,
-    minute: Math.max(1, Math.min(120, nonNegativeInteger(event.minute) || 1)),
+    minute: canonicalMinute(event.minute),
     playerId: scorer.id,
     playerName: scorer.name,
     assistPlayerId: validAssist?.id || null,
@@ -48,20 +60,67 @@ function canonicalGoalEvent(event, fixture, lineups) {
   };
 }
 
+function canonicalDisciplineEvent(event, lineups) {
+  const side = sideForEvent(event);
+  if (!side || !['yellow-card', 'red-card'].includes(event?.type)) return null;
+  const player = PLAYER_BY_ID.get(event.playerId);
+  if (!player) return null;
+  ensureLineupPlayer(lineups, side, player.id);
+  return {
+    ...event,
+    type: event.type,
+    side,
+    minute: canonicalMinute(event.minute),
+    playerId: player.id,
+    playerName: player.name,
+    reason: event.reason || event.cardReason || null
+  };
+}
+
+function canonicalInjuryEvent(event, lineups) {
+  const side = sideForEvent(event);
+  if (!side || event?.type !== 'injury') return null;
+  const player = PLAYER_BY_ID.get(event.playerId);
+  if (!player) return null;
+  ensureLineupPlayer(lineups, side, player.id);
+  const durationDays = Number(event.durationDays);
+  return {
+    ...event,
+    type: 'injury',
+    side,
+    minute: canonicalMinute(event.minute),
+    playerId: player.id,
+    playerName: player.name,
+    injuryType: event.injuryType || event.typeName || 'injury',
+    durationDays: Number.isFinite(durationDays) && durationDays > 0 ? Math.round(durationDays) : null
+  };
+}
+
+function canonicalMatchEvent(event, lineups) {
+  if (!event || !SUPPORTED_MATCH_EVENT_TYPES.has(event.type)) return null;
+  if (event.type === 'goal') return canonicalGoalEvent(event, lineups);
+  if (event.type === 'injury') return canonicalInjuryEvent(event, lineups);
+  return canonicalDisciplineEvent(event, lineups);
+}
+
 export function canonicalizeResult(result) {
   const fixture = FIXTURE_BY_ID.get(result?.fixtureId);
   if (!fixture) return null;
 
+  // Historical lineups are authoritative. We deliberately do not compare a player's
+  // static catalog clubCode here because transfers can make that value stale for a
+  // later fixture while the saved match lineup remains the factual source of truth.
   const lineups = {
-    home: uniquePlayerIds(result?.lineups?.home, fixture.home),
-    away: uniquePlayerIds(result?.lineups?.away, fixture.away)
+    home: uniquePlayerIds(result?.lineups?.home),
+    away: uniquePlayerIds(result?.lineups?.away)
   };
   const events = (Array.isArray(result?.events) ? result.events : [])
-    .map(event => canonicalGoalEvent(event, fixture, lineups))
+    .map(event => canonicalMatchEvent(event, lineups))
     .filter(Boolean)
-    .sort((left, right) => left.minute - right.minute);
-  const homeGoals = events.filter(event => event.side === 'home').length;
-  const awayGoals = events.filter(event => event.side === 'away').length;
+    .sort((left, right) => left.minute - right.minute || left.type.localeCompare(right.type));
+  const goalEvents = events.filter(event => event.type === 'goal');
+  const homeGoals = goalEvents.filter(event => event.side === 'home').length;
+  const awayGoals = goalEvents.filter(event => event.side === 'away').length;
 
   return {
     ...result,
@@ -99,6 +158,7 @@ export function playerStatsFromResults(careerOrResults) {
       ensure(id).appearances += 1;
     }
     for (const event of result.events || []) {
+      if (event.type !== 'goal') continue;
       ensure(event.playerId).goals += 1;
       if (event.isPenalty) ensure(event.playerId).penaltyGoals += 1;
       if (event.assistPlayerId) ensure(event.assistPlayerId).assists += 1;
@@ -118,7 +178,8 @@ export function auditCareerData(career) {
   const results = canonicalResults(career);
   const stats = playerStatsFromResults(results);
   const rows = Object.values(results);
-  const goalEvents = rows.flatMap(result => result.events || []);
+  const allEvents = rows.flatMap(result => result.events || []);
+  const goalEvents = allEvents.filter(event => event.type === 'goal');
   const homeGoals = rows.reduce((sum, result) => sum + result.homeGoals, 0);
   const awayGoals = rows.reduce((sum, result) => sum + result.awayGoals, 0);
   const playerGoals = Object.values(stats).reduce((sum, row) => sum + row.goals, 0);
@@ -136,6 +197,9 @@ export function auditCareerData(career) {
       penaltyGoals === penaltyEvents,
     results: rows.length,
     goals: goalEvents.length,
+    incidents: allEvents.length,
+    redCards: allEvents.filter(event => event.type === 'red-card').length,
+    injuries: allEvents.filter(event => event.type === 'injury').length,
     assists,
     penaltyGoals,
     playerStats: stats
