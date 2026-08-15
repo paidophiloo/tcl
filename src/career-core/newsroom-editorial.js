@@ -1,4 +1,5 @@
 import { CAREER_EVENT_TYPES } from './event-ledger.js';
+import { NEWSROOM_PERFORMANCE_EVENT_TYPES, PERFORMANCE_KINDS, MILESTONE_KINDS } from './newsroom-performance-types.js';
 
 const REQUIRED_FACTS = Object.freeze({
   [CAREER_EVENT_TYPES.MATCH_PLAYED]: ['fixtureId', 'homeCode', 'awayCode', 'homeGoals', 'awayGoals'],
@@ -6,7 +7,9 @@ const REQUIRED_FACTS = Object.freeze({
   [CAREER_EVENT_TYPES.RED_CARD]: ['fixtureId', 'playerId', 'clubCode', 'minute'],
   [CAREER_EVENT_TYPES.INJURY]: ['daysOut'],
   [CAREER_EVENT_TYPES.TRANSFER_COMPLETED]: ['playerId', 'toClubCode'],
-  [CAREER_EVENT_TYPES.LOAN_COMPLETED]: ['playerId', 'fromClubCode', 'toClubCode']
+  [CAREER_EVENT_TYPES.LOAN_COMPLETED]: ['playerId', 'fromClubCode', 'toClubCode'],
+  [NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE]: ['fixtureId', 'playerId', 'clubCode', 'performanceTypes'],
+  [NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE]: ['fixtureId', 'playerId', 'clubCode', 'milestones']
 });
 
 function finiteScore(value) {
@@ -51,6 +54,40 @@ function transferScore(event, context) {
   return 18 + (completion ? 18 : 4) + Math.min(26, fee / 5_000_000) + Math.max(0, rating - 72) * 1.2 + (userClub ? 16 : 0);
 }
 
+function performanceScore(event, context) {
+  const kinds = Array.isArray(event.facts?.performanceTypes) ? event.facts.performanceTypes : [];
+  let score = 24;
+  if (kinds.includes(PERFORMANCE_KINDS.FOUR_PLUS_GOALS)) score = Math.max(score, 84);
+  if (kinds.includes(PERFORMANCE_KINDS.HAT_TRICK)) score = Math.max(score, 74);
+  if (kinds.includes(PERFORMANCE_KINDS.BRACE)) score = Math.max(score, 54);
+  if (kinds.includes(PERFORMANCE_KINDS.ASSIST_DOUBLE)) score = Math.max(score, 50 + Math.min(10, Math.max(0, finiteScore(event.facts?.assists) - 2) * 4));
+  if (kinds.includes(PERFORMANCE_KINDS.STARTER_SHUTOUT)) score = Math.max(score, 28);
+  const milestone = (event.facts?.milestonesReached || []).find(item => item?.kind === MILESTONE_KINDS.SEASON_GOALS);
+  if (milestone) score += Math.min(12, Math.max(0, finiteScore(milestone.value)) / 3);
+  if (event.entities?.clubCodes?.includes(context.userClubCode)) score += 10;
+  if (event.context?.rivalry) score += 5;
+  return score;
+}
+
+function milestoneScore(event, context) {
+  const milestones = Array.isArray(event.facts?.milestones) ? event.facts.milestones : [];
+  let score = 36;
+  if (milestones.some(item => item?.kind === MILESTONE_KINDS.FIRST_CLUB_GOAL)) score = Math.max(score, 44);
+  const season = milestones.find(item => item?.kind === MILESTONE_KINDS.SEASON_GOALS);
+  if (season) score = Math.max(score, 44 + Math.min(38, Math.max(0, finiteScore(season.value)) * 1.5));
+  if (event.entities?.clubCodes?.includes(context.userClubCode)) score += 10;
+  return score;
+}
+
+function validPerformanceArrays(event, errors) {
+  if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE) {
+    if (!Array.isArray(event.facts?.performanceTypes) || !event.facts.performanceTypes.length) errors.push('performance-types-invalid');
+  }
+  if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE) {
+    if (!Array.isArray(event.facts?.milestones) || !event.facts.milestones.length) errors.push('milestones-invalid');
+  }
+}
+
 export function validateNewsFact(event) {
   const errors = [];
   if (!event || typeof event !== 'object') return { valid: false, errors: ['event-missing'] };
@@ -75,6 +112,7 @@ export function validateNewsFact(event) {
   if (event.type === CAREER_EVENT_TYPES.TRANSFER_COMPLETED && !event.facts?.freeAgent && !event.facts?.fromClubCode) {
     errors.push('fact-missing:fromClubCode');
   }
+  validPerformanceArrays(event, errors);
 
   return { valid: errors.length === 0, errors };
 }
@@ -87,6 +125,8 @@ export function scoreNewsworthiness(event, context = {}) {
   if (event.type === CAREER_EVENT_TYPES.MATCH_PLAYED) score = matchScore(event, context);
   else if (event.type === CAREER_EVENT_TYPES.INJURY) score = injuryScore(event, context);
   else if ([CAREER_EVENT_TYPES.TRANSFER_LISTED, CAREER_EVENT_TYPES.TRANSFER_OFFERED, CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) score = transferScore(event, context);
+  else if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE) score = performanceScore(event, context);
+  else if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE) score = milestoneScore(event, context);
   else if (event.type === CAREER_EVENT_TYPES.MANAGER_PRESS) score = 22 + (event.entities?.clubCodes?.includes(context.userClubCode) ? 16 : 0);
   else if (event.type === CAREER_EVENT_TYPES.RED_CARD) score = 34 + (event.entities?.clubCodes?.includes(context.userClubCode) ? 12 : 0);
   else if (event.type === CAREER_EVENT_TYPES.BOARD_MESSAGE) score = 28;
@@ -136,6 +176,34 @@ export function factualClaimsFromEvent(event) {
   }
   if ([CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) {
     claims.push({ kind: 'move', playerId: event.facts.playerId, fromClubCode: event.facts.fromClubCode, toClubCode: event.facts.toClubCode, fee: event.facts.fee ?? null });
+  }
+  if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE) {
+    claims.push({
+      kind: 'performance',
+      fixtureId: event.facts.fixtureId,
+      playerId: event.facts.playerId,
+      clubCode: event.facts.clubCode,
+      opponentCode: event.facts.opponentCode || null,
+      performanceTypes: [...event.facts.performanceTypes],
+      goals: Math.max(0, Number(event.facts.goals) || 0),
+      assists: Math.max(0, Number(event.facts.assists) || 0),
+      teamGoalsConceded: event.facts.teamGoalsConceded ?? null,
+      officialIndividualCleanSheet: event.facts.officialIndividualCleanSheet ?? null,
+      seasonGoalsAfter: event.facts.seasonGoalsAfter ?? null,
+      milestonesReached: Array.isArray(event.facts.milestonesReached) ? event.facts.milestonesReached : []
+    });
+  }
+  if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE) {
+    claims.push({
+      kind: 'milestone',
+      fixtureId: event.facts.fixtureId,
+      playerId: event.facts.playerId,
+      clubCode: event.facts.clubCode,
+      matchGoals: Math.max(0, Number(event.facts.matchGoals) || 0),
+      seasonGoalsAfter: event.facts.seasonGoalsAfter ?? null,
+      clubGoalsAfter: event.facts.clubGoalsAfter ?? null,
+      milestones: [...event.facts.milestones]
+    });
   }
   return claims;
 }
