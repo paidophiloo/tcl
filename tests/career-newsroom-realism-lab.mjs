@@ -87,7 +87,8 @@ for (let iteration = 0; iteration < 25; iteration += 1) {
   const newsroomA = buildCareerNewsroom(career, context);
   const newsroomB = buildCareerNewsroom(career, context);
   assert.deepEqual(newsroomA, newsroomB, `iteration ${iteration}: newsroom is not deterministic`);
-  assert.equal(newsroomA.lead.eventId, derby.id, `iteration ${iteration}: contextual derby should remain lead`);
+  assert.equal(newsroomA.lead.eventId, 'evt-world-lab-transfer', `iteration ${iteration}: newer meaningful story should outrank a stale derby`);
+  assert.notEqual(newsroomA.lead.eventId, derby.id, `iteration ${iteration}: 19-day-old derby remained on the front page`);
   assert.equal(newsroomA.feed.some(article => article.eventId === 'evt-world-lab-internal'), false, `iteration ${iteration}: internal event leaked`);
 
   archiveNewsroomSnapshot(career, newsroomA);
