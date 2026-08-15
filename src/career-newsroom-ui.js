@@ -1,6 +1,7 @@
 import './career-newsroom-ui.css';
 import { buildNewsroomTicker, newsroomArchive } from './career-core/newsroom-archive.js';
 import { hydrateNewsroomMedia, prefetchNewsroomMedia, resolveNewsroomMedia } from './career-core/newsroom-media.js';
+import { WORLD_PLAYER_BY_ID } from './career-world/world-player-database.js';
 
 const NEWS_ROUTE = 'news';
 const HOME_NEWS_SELECTOR = '.tl-news-slide';
@@ -125,16 +126,22 @@ function storyArcMarkup(arc) {
   const labels = {
     'form.winning-streak': 'EM ALTA',
     'form.losing-streak': 'SOB PRESSÃO',
+    'player.scoring-form': 'ARTILHEIRO EM ALTA',
     'squad.injury-pressure': 'ELENCO',
     'club.transfer-activity': 'MERCADO'
   };
+  const scorer = arc.type === 'player.scoring-form'
+    ? WORLD_PLAYER_BY_ID.get(arc.facts?.playerId)?.name || arc.facts?.playerId || 'Jogador'
+    : null;
   const title = arc.type === 'form.winning-streak'
     ? `${arc.facts?.streak || 0} vitórias seguidas`
     : arc.type === 'form.losing-streak'
       ? `${arc.facts?.streak || 0} derrotas seguidas`
-      : arc.type === 'squad.injury-pressure'
-        ? `${arc.facts?.activeInjuries || 0} desfalques ativos`
-        : `${arc.facts?.activity || 0} movimentos recentes`;
+      : arc.type === 'player.scoring-form'
+        ? `${scorer}: ${arc.facts?.goals || 0} gols em ${arc.facts?.matchesScoredIn || 0} dos últimos ${arc.facts?.windowMatches || 0} jogos`
+        : arc.type === 'squad.injury-pressure'
+          ? `${arc.facts?.activeInjuries || 0} desfalques ativos`
+          : `${arc.facts?.activity || 0} movimentos recentes`;
   return `<aside class="tn-story-arc">
     <span>${esc(labels[arc.type] || 'HISTÓRIA EM CURSO')}</span>
     <strong>${esc(title)}</strong>
@@ -161,7 +168,7 @@ function articleCard(article, featured = false) {
 
 function archiveRows(articles) {
   if (!articles.length) return '<div class="tn-empty">Nenhuma matéria arquivada ainda.</div>';
-  return articles.slice(0, 14).map(article => `<article class="tn-archive-row">
+  return articles.slice(0, 14).map(article => `<article class="tn-archive-row" data-news-article="${esc(article.id)}">
     <time>${esc(formatGameDate(article.gameDate || article.archivedOn))}</time>
     <div><span>${esc(article.label || 'NOTÍCIAS')}</span><strong>${esc(article.title)}</strong></div>
     <b>${esc(article.tier || 'wire')}</b>
