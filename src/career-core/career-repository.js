@@ -3,6 +3,7 @@ import { reconcileMailbox } from './mailbox-core.js';
 import { ensureEventLedger } from './event-ledger.js';
 import { archiveNewsroomSnapshot, ensureNewsroomArchive } from './newsroom-archive.js';
 import { buildCareerNewsroom } from './newsroom-engine.js';
+import { CLUB_BY_CODE } from './season-2026-27-live.js';
 
 const DB_NAME = "touchline-career-v5";
 const DB_VERSION = 1;
@@ -193,7 +194,8 @@ function reconcileStoredCareer(save) {
   ensureNewsroomArchive(snapshot);
   const newsroom = buildCareerNewsroom(snapshot, {
     userClubCode: snapshot.clubCode,
-    currentDate: snapshot.currentDate
+    currentDate: snapshot.currentDate,
+    clubResolver: code => CLUB_BY_CODE.get(code)?.name || code
   });
   snapshot.newsroom = newsroom;
   archiveNewsroomSnapshot(snapshot, newsroom);
