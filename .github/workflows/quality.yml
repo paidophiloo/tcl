@@ -54,6 +54,7 @@ jobs:
           node --check src/career-core/newsroom-archive.js
           node --check src/career-core/newsroom-press.js
           node --check src/career-newsroom-ui.js
+          node --check src/career-newsroom-press-ui.js
           node --check src/career-mailbox.js
           node --check src/career-league-hub.js
           node --check src/career-home-processing.js
