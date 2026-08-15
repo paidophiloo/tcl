@@ -3,6 +3,7 @@ import { reconcileMailbox } from './mailbox-core.js';
 import { ensureEventLedger } from './event-ledger.js';
 import { archiveNewsroomSnapshot, ensureNewsroomArchive } from './newsroom-archive.js';
 import { buildCareerNewsroom } from './newsroom-engine.js';
+import { reconcileWorldNewsEvents } from './newsroom-world-bridge.js';
 import { CLUB_BY_CODE } from './season-2026-27-live.js';
 
 const DB_NAME = "touchline-career-v5";
@@ -191,6 +192,7 @@ function reconcileStoredCareer(save) {
   reconcileCareerData(snapshot);
   reconcileMailbox(snapshot);
   ensureEventLedger(snapshot);
+  reconcileWorldNewsEvents(snapshot);
   ensureNewsroomArchive(snapshot);
   const newsroom = buildCareerNewsroom(snapshot, {
     userClubCode: snapshot.clubCode,
