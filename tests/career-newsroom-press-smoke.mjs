@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { appendCareerEvent, CAREER_EVENT_TYPES, careerEvents } from '../src/career-core/event-ledger.js';
+import { NEWSROOM_GOVERNANCE_EVENT_TYPES } from '../src/career-core/newsroom-governance-types.js';
 import { buildCareerNewsroom } from '../src/career-core/newsroom-engine.js';
 import { buildPressConference, NEWSROOM_PRESS_WINDOW_DAYS, recordPressResponse } from '../src/career-core/newsroom-press.js';
 
@@ -125,5 +126,63 @@ assert.ok(scorerQuestion, 'scorer form must become a contextual press question')
 assert.match(scorerQuestion.prompt, /4 gols/);
 assert.match(scorerQuestion.prompt, /2 dos últimos 2 jogos/);
 assert.equal(scorerQuestion.topic, 'a fase do artilheiro');
+
+const pressureCareer = {
+  clubCode: 'MUN',
+  managerName: 'Gabriel Machado',
+  currentDate: '2026-09-10',
+  createdAt: '2026-07-01T08:00:00.000Z',
+  updatedAt: '2026-09-10T18:00:00.000Z',
+  world: {
+    boardState: {
+      clubs: {
+        MUN: {
+          confidence: 18,
+          band: 'critical',
+          lastReviewedDate: '2026-09-10',
+          lastReviewedMatchId: 'bp3',
+          history: [{ date: '2026-09-10', matchId: 'bp3', confidence: 18, band: 'critical', ppg: 0.25, expectedPpg: 1.82 }]
+        }
+      }
+    }
+  }
+};
+for (const [date, fixtureId, opponent] of [
+  ['2026-08-30', 'bp1', 'WHU'],
+  ['2026-09-05', 'bp2', 'FUL'],
+  ['2026-09-10', 'bp3', 'EVE']
+]) {
+  appendCareerEvent(pressureCareer, {
+    id: `evt-match-${fixtureId}`,
+    type: CAREER_EVENT_TYPES.MATCH_PLAYED,
+    gameDate: date,
+    source: 'match-engine',
+    entities: { clubCodes: ['MUN', opponent] },
+    facts: { fixtureId, homeCode: 'MUN', awayCode: opponent, homeGoals: 0, awayGoals: 2 },
+    links: { fixtureId }
+  });
+}
+appendCareerEvent(pressureCareer, {
+  id: 'evt-board-pressure-critical',
+  type: NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE,
+  gameDate: '2026-09-10',
+  source: 'living-world-ledger',
+  visibility: 'public',
+  entities: { clubCodes: ['MUN'] },
+  facts: {
+    clubCode: 'MUN', managerName: 'Gabriel Machado', confidence: 18, band: 'critical', previousBand: 'pressure',
+    ppg: 0.25, expectedPpg: 1.82, performanceGap: -1.57, sampleMatches: 6, latestMatchId: 'bp3'
+  }
+});
+const pressureConference = buildPressConference(pressureCareer);
+assert.ok(pressureConference, 'critical board pressure after a current match should still open the normal press conference');
+const pressureQuestion = pressureConference.questions.find(question => question.id === 'story-arc');
+assert.ok(pressureQuestion, 'factual critical board pressure must create a contextual journalist question');
+assert.equal(pressureQuestion.topic, 'a pressão da diretoria');
+assert.match(pressureQuestion.prompt, /18\/100/);
+assert.match(pressureQuestion.prompt, /cargo está em risco/);
+assert.match(pressureQuestion.prompt, /0\.25 ponto\(s\) por jogo/);
+assert.match(pressureQuestion.prompt, /1\.82 esperado/);
+assert.deepEqual(pressureQuestion.options.map(option => option.id), ['board-accountable', 'board-conviction', 'board-calm']);
 
 console.log('career newsroom press smoke: ok');
