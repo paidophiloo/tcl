@@ -8,6 +8,7 @@ const HOME_NEWS_SELECTOR = '.tl-news-slide';
 const CONTENT_SELECTOR = '.cp-content';
 let installQueued = false;
 let renderToken = 0;
+let homeHydrationToken = 0;
 let lastHomeEventId = null;
 let newsroomRenderedKey = null;
 
@@ -47,6 +48,63 @@ function leadFallbackImage(career) {
   return `/assets/clubs/2026-27/${code}/stadium.webp`;
 }
 
+function setText(node, value) {
+  if (!node) return false;
+  const next = String(value ?? '');
+  if (node.textContent === next) return false;
+  node.textContent = next;
+  return true;
+}
+
+function setMediaKind(element, kind) {
+  if (!element) return;
+  element.classList.remove('tl-newsroom-media-player', 'tl-newsroom-media-stadium', 'tl-newsroom-media-club');
+  if (kind === 'player' || kind === 'stadium' || kind === 'club') {
+    element.classList.add(`tl-newsroom-media-${kind}`);
+  }
+}
+
+function preloadImage(url, timeoutMs = 4500) {
+  if (!url || typeof Image !== 'function') return Promise.resolve(Boolean(url));
+  return new Promise(resolve => {
+    const probe = new Image();
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout?.(timer);
+      probe.onload = null;
+      probe.onerror = null;
+      resolve(result);
+    };
+    const timer = globalThis.setTimeout?.(() => finish(false), timeoutMs);
+    probe.decoding = 'async';
+    probe.onload = () => {
+      const width = Number(probe.naturalWidth) || 0;
+      const height = Number(probe.naturalHeight) || 0;
+      finish(width >= 120 && height >= 120);
+    };
+    probe.onerror = () => finish(false);
+    probe.src = url;
+  });
+}
+
+async function resolveStableHomeMedia(lead, career) {
+  const resolved = await resolveNewsroomMedia(lead, { userClubCode: career.clubCode });
+  const candidates = [...new Set([resolved?.url, ...(resolved?.candidates || []), leadFallbackImage(career)].filter(Boolean))];
+  for (const url of candidates) {
+    if (await preloadImage(url)) {
+      return {
+        ...resolved,
+        url,
+        kind: url === leadFallbackImage(career) && url !== resolved?.url ? 'stadium' : (resolved?.kind || 'stadium'),
+        alt: resolved?.alt || lead.title || 'Touchline News'
+      };
+    }
+  }
+  return { kind: 'stadium', url: leadFallbackImage(career), alt: lead.title || 'Touchline News' };
+}
+
 function ensureNewsNavigation() {
   const nav = document.querySelector('.cp-side nav');
   if (!nav) return;
@@ -69,41 +127,51 @@ function ensureNewsNavigation() {
 async function hydrateHomeCard() {
   const slide = document.querySelector(HOME_NEWS_SELECTOR);
   if (!slide || route() === NEWS_ROUTE) return;
+  const token = ++homeHydrationToken;
   const career = await loadCareer();
   const lead = career?.newsroom?.lead;
-  if (!lead || !document.contains(slide)) return;
+  if (token !== homeHydrationToken || !lead || !document.contains(slide) || route() === NEWS_ROUTE) return;
 
-  const image = slide.querySelector('.tl-news-image img');
+  const imageFrame = slide.querySelector('.tl-news-image');
+  const image = imageFrame?.querySelector('img');
   const label = slide.querySelector('article header b');
   const time = slide.querySelector('article header time');
   const title = slide.querySelector('article h3');
   const summary = slide.querySelector('article p');
   const credit = slide.querySelector('article footer span');
   const byline = slide.querySelector('article footer b');
+  const eventId = String(lead.eventId || lead.id || '');
 
-  if (label) label.textContent = lead.label || 'TOUCHLINE NEWS';
-  if (time) time.textContent = relativeDate(lead, career);
-  if (title) title.textContent = lead.title || 'Touchline News';
-  if (summary) summary.textContent = lead.summary || '';
-  if (byline) byline.textContent = 'Touchline Newsroom';
-  if (credit) credit.textContent = 'Fatos verificados pelo Event Ledger';
+  setText(label, lead.label || 'TOUCHLINE NEWS');
+  setText(time, relativeDate(lead, career));
+  setText(title, lead.title || 'Touchline News');
+  setText(summary, lead.summary || '');
+  setText(byline, 'Touchline Newsroom');
+  setText(credit, 'Fatos verificados pelo Event Ledger');
 
-  slide.dataset.newsroomEventId = lead.eventId || '';
-  slide.dataset.homeOpen = NEWS_ROUTE;
-  slide.setAttribute('role', 'button');
-  slide.setAttribute('tabindex', '0');
-  slide.setAttribute('aria-label', `Abrir Touchline Newsroom: ${lead.title || 'notícia principal'}`);
+  if (slide.dataset.newsroomEventId !== eventId) slide.dataset.newsroomEventId = eventId;
+  if (slide.dataset.homeOpen !== NEWS_ROUTE) slide.dataset.homeOpen = NEWS_ROUTE;
+  if (slide.getAttribute('role') !== 'button') slide.setAttribute('role', 'button');
+  if (slide.getAttribute('tabindex') !== '0') slide.setAttribute('tabindex', '0');
+  const ariaLabel = `Abrir Touchline Newsroom: ${lead.title || 'notícia principal'}`;
+  if (slide.getAttribute('aria-label') !== ariaLabel) slide.setAttribute('aria-label', ariaLabel);
   slide.classList.add('tl-newsroom-live');
 
-  if (lastHomeEventId !== lead.eventId || !image?.dataset.newsroomResolved) {
-    const media = await resolveNewsroomMedia(lead, { userClubCode: career.clubCode });
-    if (image && document.contains(image)) {
-      image.src = media?.url || leadFallbackImage(career);
-      image.alt = media?.alt || lead.title || 'Touchline News';
-      image.dataset.newsroomResolved = 'true';
-      if (media?.candidates?.[1]) image.dataset.fallback = media.candidates[1];
-    }
-    lastHomeEventId = lead.eventId || null;
+  const needsMedia = lastHomeEventId !== eventId || !image?.dataset.newsroomResolved || image?.dataset.newsroomEventId !== eventId;
+  if (needsMedia) {
+    const media = await resolveStableHomeMedia(lead, career);
+    if (token !== homeHydrationToken || route() === NEWS_ROUTE || !image || !document.contains(image)) return;
+    if (String(slide.dataset.newsroomEventId || '') !== eventId) return;
+
+    const nextUrl = media?.url || leadFallbackImage(career);
+    if (image.getAttribute('src') !== nextUrl) image.src = nextUrl;
+    image.alt = media?.alt || lead.title || 'Touchline News';
+    image.dataset.newsroomResolved = 'true';
+    image.dataset.newsroomEventId = eventId;
+    image.dataset.newsroomKind = media?.kind || 'stadium';
+    if (media?.candidates?.[1]) image.dataset.fallback = media.candidates[1];
+    setMediaKind(imageFrame, media?.kind || 'stadium');
+    lastHomeEventId = eventId;
   }
 
   if (!slide.dataset.newsroomBound) {
@@ -170,8 +238,9 @@ function storyArcMarkup(arc) {
 
 function articleCard(article, featured = false) {
   const media = article.media;
+  const mediaKind = ['player', 'stadium', 'club'].includes(media?.kind) ? media.kind : 'stadium';
   return `<article class="tn-article ${featured ? 'is-featured' : ''}" data-news-article="${esc(article.id)}">
-    <div class="tn-article-media">
+    <div class="tn-article-media tn-media-${esc(mediaKind)}">
       ${media?.url ? `<img src="${esc(media.url)}" alt="${esc(media.alt || article.title)}" loading="${featured ? 'eager' : 'lazy'}" decoding="async">` : '<div class="tn-media-placeholder">T</div>'}
       <span>${esc(article.label || 'NOTÍCIAS')}</span>
     </div>
@@ -232,7 +301,7 @@ async function renderNewsroomPage() {
   const hydrated = await hydrateNewsroomMedia(base, { userClubCode: career.clubCode });
   if (token !== renderToken || route() !== NEWS_ROUTE) return false;
 
-  const key = `${career.storageRevision || 0}:${career.currentDate}:${hydrated.feed.map(item => item.eventId).join('|')}`;
+  const key = `${career.storageRevision || 0}:${career.currentDate}:${hydrated.feed.map(item => `${item.eventId}:${item.media?.url || ''}`).join('|')}`;
   if (newsroomRenderedKey === key && content.querySelector('[data-touchline-newsroom]')) return true;
   newsroomRenderedKey = key;
   content.classList.remove('cp-content-home-v2');
@@ -248,6 +317,7 @@ async function installProjection() {
   if (!browserReady()) return;
   ensureNewsNavigation();
   if (route() === NEWS_ROUTE) {
+    ++homeHydrationToken;
     await renderNewsroomPage();
     ensureNewsNavigation();
     return;
@@ -265,9 +335,21 @@ function scheduleProjection() {
 
 if (browserReady()) {
   const root = document.querySelector('#app') || document.documentElement;
-  new MutationObserver(scheduleProjection).observe(root, { childList: true, subtree: true });
+  new MutationObserver(mutations => {
+    const relevant = mutations.some(mutation => {
+      if (mutation.type !== 'childList') return false;
+      if (!mutation.addedNodes.length && !mutation.removedNodes.length) return false;
+      const target = mutation.target instanceof Element ? mutation.target : mutation.target?.parentElement;
+      if (!target) return true;
+      if (target.closest('.tl-news-slide article, .tl-news-image, [data-touchline-newsroom]')) return false;
+      return true;
+    });
+    if (relevant) scheduleProjection();
+  }).observe(root, { childList: true, subtree: true });
   window.addEventListener('hashchange', () => {
     newsroomRenderedKey = null;
+    lastHomeEventId = null;
+    ++homeHydrationToken;
     scheduleProjection();
   });
   scheduleProjection();
