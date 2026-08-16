@@ -37,6 +37,34 @@ function governanceEvent(worldEvent, common) {
   const entities = worldEvent.entities || {};
   const payload = worldEvent.payload || {};
 
+  if (worldEvent.type === 'MANAGER_JOB_PRESSURE') {
+    const managerName = payload.managerName || 'Treinador';
+    const club = clubName(entities.clubCode);
+    const critical = payload.band === 'critical';
+    return {
+      ...common,
+      type: NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE,
+      entities: { clubCodes: compact([entities.clubCode]) },
+      facts: {
+        clubCode: entities.clubCode,
+        managerName,
+        confidence: Number(payload.confidence) || 0,
+        band: payload.band || 'pressure',
+        previousBand: payload.previousBand || null,
+        ppg: payload.ppg == null ? null : Number(payload.ppg),
+        expectedPpg: payload.expectedPpg == null ? null : Number(payload.expectedPpg),
+        performanceGap: payload.performanceGap == null ? null : Number(payload.performanceGap),
+        sampleMatches: Number(payload.sampleMatches) || 0,
+        latestMatchId: payload.latestMatchId || null,
+        headline: critical
+          ? `Pressão sobre ${managerName} chega a nível crítico no ${club}`
+          : `${managerName} entra sob pressão no ${club}`,
+        summary: `A avaliação da diretoria caiu para ${Number(payload.confidence) || 0}/100 após ${Number(payload.sampleMatches) || 0} jogos recentes analisados pelo modelo de pontos esperados do clube.`
+      },
+      context: { worldEventType: worldEvent.type, boardPressure: true }
+    };
+  }
+
   if (worldEvent.type === 'MANAGER_SACKED') {
     const managerName = payload.managerName || 'Treinador';
     const club = clubName(entities.clubCode);
