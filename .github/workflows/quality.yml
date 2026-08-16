@@ -89,11 +89,14 @@ jobs:
           node --check src/career-world/transfers/recruitment-ai.js
           node --check src/career-world/transfers/transfer-engine.js
           node --check src/career-world/transfers/valuation-engine.js
+          node --check src/match-sim/v2.js
+          node --check src/match-sim/engine.js
           node --check scripts/official-ea-ratings.mjs
           node --check scripts/sync-world-player-database.mjs
           node --check scripts/ensure-world-player-database.mjs
           node --check tests/world-player-database-smoke.mjs
           node --check tests/living-market-v2-smoke.mjs
+          node --check tests/match-engine-v2-smoke.mjs
           node --check tests/career-result-incidents-smoke.mjs
           node --check tests/career-event-ledger-smoke.mjs
           node --check tests/career-newsroom-core-smoke.mjs
@@ -116,6 +119,9 @@ jobs:
 
       - name: Build production bundle and run all integrity tests
         run: npm run build
+
+      - name: Test tactical Match Engine V2
+        run: node tests/match-engine-v2-smoke.mjs
 
       - name: Test persisted match result incidents
         run: node tests/career-result-incidents-smoke.mjs
