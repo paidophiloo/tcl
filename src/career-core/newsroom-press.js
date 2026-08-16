@@ -143,6 +143,26 @@ function storyQuestion(arc, managerName) {
       ]
     };
   }
+  if (arc.type === 'club.manager-pressure') {
+    const confidence = Math.round(Number(arc.facts?.confidence) || 0);
+    const critical = arc.facts?.band === 'critical';
+    const ppg = Number(arc.facts?.ppg);
+    const expectedPpg = Number(arc.facts?.expectedPpg);
+    const evidence = Number.isFinite(ppg) && Number.isFinite(expectedPpg)
+      ? ` A equipe tem ${ppg.toFixed(2)} ponto(s) por jogo contra ${expectedPpg.toFixed(2)} esperado(s) na avaliação recente.`
+      : '';
+    return {
+      id: 'story-arc', topic: 'a pressão da diretoria',
+      prompt: critical
+        ? `A confiança da diretoria está em ${confidence}/100.${evidence} Você sente que seu cargo está em risco?`
+        : `A confiança da diretoria caiu para ${confidence}/100.${evidence} Como você reage à pressão crescente?`,
+      options: [
+        option('board-accountable', 'accountable', 'Assumir a responsabilidade', `${manager}: "Os resultados precisam melhorar e a responsabilidade começa comigo. Minha obrigação é encontrar respostas no campo."`, { morale: 1, pressure: -1 }),
+        option('board-conviction', 'ambitious', 'Demonstrar convicção', `${manager}: "Eu respeito a cobrança, mas não vou dirigir a equipe com medo. Tenho convicção no trabalho e na capacidade deste grupo de reagir."`, { morale: 1, pressure: 2 }),
+        option('board-calm', 'protective', 'Reduzir o ruído', `${manager}: "A relação com a diretoria é direta. Sabemos que precisamos de resultados, mas o elenco precisa de clareza, não de ruído externo."`, { morale: 2, pressure: -2 })
+      ]
+    };
+  }
   if (arc.type === 'player.scoring-form') {
     const goals = Number(arc.facts?.goals) || 0;
     const matches = Number(arc.facts?.matchesScoredIn) || 0;
