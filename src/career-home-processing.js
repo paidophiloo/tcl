@@ -1,5 +1,6 @@
 import { advanceOneDay, formatDate, nextUserFixture, normalizeCareer } from './career-core/career-runtime.js';
 import { CareerRepository, legacyClubSelection } from './career-core/career-repository.js';
+import { ensureLegacyCareerPointer, syncManagerProfileFromCareer } from './career-save-profile.js';
 import { CLUB_BY_CODE, FIXTURES } from './career-core/season-2026-27.js';
 import { PLAYER_BY_ID } from './career-core/career-core.js';
 import { isFriendlyFixture, resolveFriendlyClub } from './career-core/friendly-engine.js';
@@ -143,8 +144,13 @@ async function runProcessing(){
     const preview=normalizeCareer(loaded,selected), next=nextUserFixture(preview); if(!next||next.date===preview.currentDate){callOriginalContinue();return}
     const start=preview.currentDate, target=next.date, total=Math.max(1,daysBetween(start,target)); const opponent=club(preview,next.home===preview.clubCode?next.away:next.home); const targetLabel=`${isFriendlyFixture(next)?'Amistoso':'Jogo'} · ${opponent.shortName||opponent.name} · ${shortDate(target)}`;
     pauseRail(); showLayer(); updateLayer(start,target,targetLabel,0,'Lendo agenda, elencos, contratos e mercado…'); await sleep(130);
-    for(let i=0;i<MAX_PREVIEW_DAYS;i+=1){const day=preview.currentDate, before=new Set(Object.keys(preview.results||{})); const step=advanceOneDay(preview); const shown=step.ready?day:preview.currentDate; const story=dailyStory(preview,step.daySummary?.date||day,before,step.daySummary); const progress=Math.min(1,daysBetween(start,shown)/total); patchBackground(preview); if(story?.title)patchNews(story); updateLayer(shown,target,targetLabel,progress,story?.activity||'Mundo atualizado'); await sleep(delayFor(total,story)); if(step.ready||preview.status==='complete')break}
-    const committedDate=preview.currentDate; updateLayer(committedDate,target,targetLabel,1,'Calendário atualizado. Preparando a próxima decisão…',true); await sleep(220);
+    for(let i=0;i<MAX_PREVIEW_DAYS;i+=1){const day=preview.currentDate, before=new Set(Object.keys(preview.results||{})); const step=advanceOneDay(preview); const shown=step.ready?day:preview.currentDate; const story=dailyStory(preview,step.daySummary?.date||day,before,step.daySummary); const progress=Math.min(1,daysBetween(start,shown)/total); patchBackground(preview); if(story?.title)patchNews(story); updateLayer(shown,target,targetLabel,progress,story?.activity||'Mundo atualizado'); await sleep(delayFor(total,story)); if(step.ready||preview.status==='complete'||preview.status==='unemployed')break}
+    const committedDate=preview.currentDate;
+    if(preview.status==='unemployed'){
+      updateLayer(committedDate,target,'MERCADO DE EMPREGOS',1,'A diretoria encerrou seu vínculo. Abrindo o Job Centre…',true); await sleep(220);
+      const saved=await CareerRepository.save(preview); syncManagerProfileFromCareer(saved); ensureLegacyCareerPointer(); window.location.hash='jobs'; await sleep(100); return;
+    }
+    updateLayer(committedDate,target,targetLabel,1,'Calendário atualizado. Preparando a próxima decisão…',true); await sleep(220);
     if(!callOriginalContinue())return; await waitForCommittedCareer(committedDate); await waitForHome(); await patchLatestWorldNews(); await sleep(80);
   }catch(error){console.error('Touchline calendar processing failed:',error); callOriginalContinue()}
   finally{await hideLayer(); resumeRail(); processing=false}
