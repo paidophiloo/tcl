@@ -43,6 +43,9 @@ jobs:
           node --check src/career-mode-data.js
           node --check src/premier-league-live.js
           node --check src/career-face-recovery.js
+          node --check src/career-save-profile.js
+          node --check src/career-session-persistence.js
+          node --check src/career-manager-job-centre.js
           node --check src/career-core/result-integrity.js
           node --check src/career-core/mailbox-core.js
           node --check src/career-core/league-hub-data.js
@@ -73,6 +76,7 @@ jobs:
           node --check src/career-world/daily-tick.js
           node --check src/career-world/world-engine.js
           node --check src/career-world/world-match-adapter.js
+          node --check src/career-world/managers/user-manager-career.js
           node --check src/career-world/clubs/club-brain.js
           node --check src/career-world/clubs/european-brain-registry.js
           node --check src/career-world/clubs/squad-analysis.js
@@ -107,6 +111,8 @@ jobs:
           node --check tests/career-newsroom-realism-lab.mjs
           node --check tests/board-confidence-smoke.mjs
           node --check tests/board-objectives-smoke.mjs
+          node --check tests/user-manager-career-smoke.mjs
+          node --check tests/career-manager-job-centre-smoke.mjs
 
       - name: Build production bundle and run all integrity tests
         run: npm run build
@@ -135,6 +141,11 @@ jobs:
         run: |
           node tests/board-confidence-smoke.mjs
           node tests/board-objectives-smoke.mjs
+
+      - name: Test user manager dismissal and reemployment lifecycle
+        run: |
+          node tests/user-manager-career-smoke.mjs
+          node tests/career-manager-job-centre-smoke.mjs
 
       - name: Test World Player Database builder
         run: node tests/world-player-database-smoke.mjs
