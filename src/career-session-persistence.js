@@ -6,7 +6,7 @@ import {
   syncManagerProfileFromCareer
 } from "./career-save-profile.js";
 
-const CAREER_ROUTES = new Set(["home", "squad", "tactics", "calendar", "league", "inbox", "club"]);
+const CAREER_ROUTES = new Set(["home", "squad", "tactics", "calendar", "league", "inbox", "club", "jobs"]);
 
 function routeFromLocation() {
   const route = location.hash.replace(/^#/, "");
