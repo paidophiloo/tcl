@@ -65,6 +65,50 @@ function governanceEvent(worldEvent, common) {
     };
   }
 
+  if (worldEvent.type === 'USER_MANAGER_ULTIMATUM') {
+    const managerName = payload.managerName || 'Treinador';
+    const club = clubName(entities.clubCode);
+    const recoveryMatches = Math.max(1, Number(payload.recoveryMatches) || 0);
+    return {
+      ...common,
+      type: NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_ULTIMATUM,
+      entities: { clubCodes: compact([entities.clubCode]) },
+      facts: {
+        clubCode: entities.clubCode,
+        managerName,
+        confidence: Number(payload.confidence) || 0,
+        band: payload.band || 'critical',
+        recoveryMatches,
+        objectiveType: payload.objectiveType || null,
+        objectiveStatus: payload.objectiveStatus || null,
+        position: payload.position == null ? null : Number(payload.position),
+        headline: `${club} dá ${recoveryMatches} jogos para ${managerName} reagir`,
+        summary: `A diretoria formalizou um ultimato: ${managerName} terá os próximos ${recoveryMatches} jogos para recuperar a confiança, atualmente em ${Number(payload.confidence) || 0}/100.`
+      },
+      context: { worldEventType: worldEvent.type, boardPressure: true, formalUltimatum: true }
+    };
+  }
+
+  if (worldEvent.type === 'USER_MANAGER_ULTIMATUM_SURVIVED') {
+    const managerName = payload.managerName || 'Treinador';
+    const club = clubName(entities.clubCode);
+    return {
+      ...common,
+      type: NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_ULTIMATUM_SURVIVED,
+      entities: { clubCodes: compact([entities.clubCode]) },
+      facts: {
+        clubCode: entities.clubCode,
+        managerName,
+        confidence: Number(payload.confidence) || 0,
+        reviewsCompleted: Math.max(0, Number(payload.reviewsCompleted) || 0),
+        reason: payload.reason || null,
+        headline: `${managerName} supera ultimato no ${club}`,
+        summary: `${managerName} permanece no cargo após a janela formal de recuperação; a decisão foi registrada pela diretoria com confiança em ${Number(payload.confidence) || 0}/100.`
+      },
+      context: { worldEventType: worldEvent.type, boardPressure: true, ultimatumResolved: true }
+    };
+  }
+
   if (worldEvent.type === 'MANAGER_SACKED') {
     const managerName = payload.managerName || 'Treinador';
     const club = clubName(entities.clubCode);
@@ -80,10 +124,14 @@ function governanceEvent(worldEvent, common) {
         ppg: payload.ppg == null ? null : Number(payload.ppg),
         expectedPpg: payload.expectedPpg == null ? null : Number(payload.expectedPpg),
         underperformance: payload.underperformance == null ? null : Number(payload.underperformance),
+        userManager: Boolean(payload.userManager),
+        objectiveType: payload.objectiveType || null,
+        objectiveStatus: payload.objectiveStatus || null,
+        position: payload.position == null ? null : Number(payload.position),
         headline: `${club} demite ${managerName}`,
         summary: `${managerName} deixou o comando do ${club} após a revisão de desempenho registrada pelo Living World.`
       },
-      context: { worldEventType: worldEvent.type }
+      context: { worldEventType: worldEvent.type, userManager: Boolean(payload.userManager) }
     };
   }
 
@@ -106,6 +154,7 @@ function governanceEvent(worldEvent, common) {
         managerName,
         tacticalStyle: payload.tacticalStyle || null,
         fitScore: payload.fitScore == null ? null : Number(payload.fitScore),
+        userManager: Boolean(payload.userManager),
         headline: poached && source
           ? `${managerName} troca o ${source} pelo ${destination}`
           : `${destination} anuncia ${managerName} como novo treinador`,
@@ -113,7 +162,7 @@ function governanceEvent(worldEvent, common) {
           ? `${destination} tirou ${managerName} do ${source}; a mudança foi registrada pelo mercado de treinadores do Living World.`
           : `${managerName} assumiu o comando permanente do ${destination} após o processo de contratação do clube.`
       },
-      context: { worldEventType: worldEvent.type }
+      context: { worldEventType: worldEvent.type, userManager: Boolean(payload.userManager) }
     };
   }
 
