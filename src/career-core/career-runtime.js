@@ -254,18 +254,26 @@ function finishSeasonIfNeeded(career) {
   }
 }
 
+function managerIsUnemployed(career) {
+  return career.status === 'unemployed' || career.managerCareer?.status === 'unemployed';
+}
+
 export function advanceOneDay(career) {
   ensureFriendlyWorld(career);
   ensureLivingWorld(career);
   const processingDate = career.currentDate;
+  const unemployedBeforeTick = managerIsUnemployed(career);
   const daySummary = processWorldDay(career, processingDate);
-  if (career.status === 'unemployed' || career.managerCareer?.status === 'unemployed') {
+  const unemployedAfterTick = managerIsUnemployed(career);
+  if (!unemployedBeforeTick && unemployedAfterTick) {
     return { career, ready: false, fixture: null, daySummary, employmentChanged: true, employmentChangeDate: processingDate };
   }
-  const userFixture = userFixtures(career).find(fixture => fixture.date === processingDate && !friendlyResultFor(career, fixture));
+  const userFixture = unemployedAfterTick
+    ? null
+    : userFixtures(career).find(fixture => fixture.date === processingDate && !friendlyResultFor(career, fixture));
   simulateOtherMatches(career, processingDate, userFixture);
   if (userFixture) return { career, ready: true, fixture: userFixture, daySummary };
-  recover(career);
+  if (!unemployedAfterTick) recover(career);
   career.currentDate = nextDay(processingDate);
   finishSeasonIfNeeded(career);
   return { career, ready: false, fixture: null, daySummary };
@@ -274,7 +282,7 @@ export function advanceOneDay(career) {
 export function continueToNextMatch(career) {
   for (let index = 0; index < 500; index += 1) {
     const step = advanceOneDay(career);
-    if (step.ready || career.status === 'complete' || career.status === 'unemployed' || career.managerCareer?.status === 'unemployed') return step;
+    if (step.ready || career.status === 'complete' || step.employmentChanged) return step;
   }
   throw new Error('Calendar guard exceeded');
 }
