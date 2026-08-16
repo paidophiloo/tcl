@@ -1,0 +1,5 @@
+import { contextualSkill } from '../core/player-attributes.js';
+import { metricDistance } from './pitch-model.js';
+export function pressureAtPoint(team,point,{excludeId=null}={}){const press=(team.tactics?.pressing??60)/100;let total=0;for(const p of team.players||[]){if(p.redCard||String(p.id)===String(excludeId))continue;const d=metricDistance(p,point);if(d>22)continue;const defend=contextualSkill(p,['positioning','anticipation','workRate','defending'])/100;const stamina=Math.max(.35,(p.stamina??90)/100);total+=Math.exp(-d/(4.2+press*1.5))*defend*stamina*(.72+press*.55)}return Math.max(0,Math.min(2,total))}
+export function nearestPressure(team,point,count=3){return (team.players||[]).filter(p=>!p.redCard).map(p=>({player:p,distance:metricDistance(p,point),quality:contextualSkill(p,['positioning','workRate','defending'])/100})).sort((a,b)=>a.distance-b.distance).slice(0,count)}
+export function pressRank(team,ballPoint,playerId){const rows=nearestPressure(team,ballPoint,11);const i=rows.findIndex(r=>String(r.player.id)===String(playerId));return i<0?99:i}

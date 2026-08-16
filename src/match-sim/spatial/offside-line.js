@@ -1,0 +1,3 @@
+import { localPoint } from './pitch-model.js';
+export function offsideLineForAttack(attackingTeam,defendingTeam,ball){const defenders=(defendingTeam.players||[]).filter(p=>!p.redCard&&p.role!=='GK').map(p=>localPoint(attackingTeam,p).x).sort((a,b)=>b-a);const secondLast=defenders[1]??defenders[0]??1;const ballX=localPoint(attackingTeam,ball).x;return Math.max(.5,Math.max(secondLast,ballX))}
+export function isOffsidePosition(attackingTeam,defendingTeam,attacker,ball,{tolerance=.002}={}){const a=localPoint(attackingTeam,attacker);if(a.x<=.5)return false;return a.x>offsideLineForAttack(attackingTeam,defendingTeam,ball)+tolerance}
