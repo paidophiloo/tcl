@@ -87,6 +87,16 @@ function managerChangeText(claim) {
       : '';
     return `${manager}: confiança da diretoria em nível ${band} (${Number(claim.confidence) || 0}/100) no ${clubName(claim.clubCode)}${performance}`;
   }
+  if (claim.action === 'manager.ultimatum') {
+    const window = Math.max(1, Number(claim.recoveryMatches) || 0);
+    const objective = claim.objectiveStatus ? ` · objetivo da temporada: ${claim.objectiveStatus}` : '';
+    const position = claim.position != null ? ` · posição: ${Number(claim.position)}` : '';
+    return `${manager}: ultimato formal de ${window} jogo${window === 1 ? '' : 's'} no ${clubName(claim.clubCode)} · confiança ${Number(claim.confidence) || 0}/100${objective}${position}`;
+  }
+  if (claim.action === 'manager.ultimatum-survived') {
+    const reviews = Number(claim.reviewsCompleted) || 0;
+    return `${manager} superou o ultimato no ${clubName(claim.clubCode)} · confiança ${Number(claim.confidence) || 0}/100${reviews ? ` após ${reviews} revisão${reviews === 1 ? '' : 'ões'} de jogo` : ''}`;
+  }
   if (claim.action === 'manager.sacked') {
     const ppg = Number.isFinite(Number(claim.ppg)) ? ` · ${Number(claim.ppg).toFixed(2)} ponto(s) por jogo na amostra da revisão` : '';
     return `${manager} foi demitido pelo ${clubName(claim.clubCode)}${ppg}`;
