@@ -147,6 +147,8 @@ function transferArc(events, clubCode) {
 
 const MANAGER_TYPES = new Set([
   NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE,
+  NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_ULTIMATUM,
+  NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_ULTIMATUM_SURVIVED,
   NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED,
   NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED,
   NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED
@@ -157,6 +159,8 @@ function managerRoleForClub(event, clubCode) {
   if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED && event.facts?.fromClubCode === clubCode) return 'departed';
   if (event.facts?.clubCode !== clubCode) return null;
   if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE) return 'pressure';
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_ULTIMATUM) return 'ultimatum';
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_ULTIMATUM_SURVIVED) return 'survived';
   if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED) return 'departed';
   return 'arrived';
 }
@@ -201,6 +205,31 @@ function persistedBoardPressureArc(career, events, relevant, clubCode) {
   };
 }
 
+function formalUltimatumArc(events, relevant, clubCode, event) {
+  const pressure = relevant.filter(row => row.role === 'pressure' && row.event.gameDate <= event.gameDate).slice(-2).map(row => row.event.id);
+  const played = matchesAfter(events, clubCode, event.gameDate).slice(0, Math.max(1, Number(event.facts?.recoveryMatches) || 3));
+  return {
+    schemaVersion: ARC_SCHEMA_VERSION,
+    id: `arc-manager-ultimatum-${clubCode}`,
+    type: 'club.manager-ultimatum',
+    subject: { clubCode },
+    status: 'active',
+    startedOn: event.gameDate,
+    updatedOn: played.at(-1)?.gameDate || event.gameDate,
+    strength: 100,
+    facts: {
+      managerName: event.facts?.managerName || 'Treinador',
+      confidence: Number(event.facts?.confidence) || 0,
+      recoveryMatches: Math.max(1, Number(event.facts?.recoveryMatches) || 3),
+      matchesPlayedInWindow: played.length,
+      objectiveType: event.facts?.objectiveType || null,
+      objectiveStatus: event.facts?.objectiveStatus || null,
+      position: event.facts?.position ?? null
+    },
+    eventIds: [...pressure, event.id, ...played.map(match => match.id)]
+  };
+}
+
 function managerArc(events, clubCode, career) {
   const relevant = events
     .map(event => ({ event, role: managerRoleForClub(event, clubCode) }))
@@ -208,11 +237,15 @@ function managerArc(events, clubCode, career) {
     .sort((left, right) => left.event.gameDate.localeCompare(right.event.gameDate) || left.event.id.localeCompare(right.event.id));
   if (!relevant.length) return null;
 
+  const latest = relevant.at(-1);
+  const event = latest.event;
+
+  if (latest.role === 'ultimatum') return formalUltimatumArc(events, relevant, clubCode, event);
+  if (latest.role === 'survived') return null;
+
   const persistedPressure = persistedBoardPressureArc(career, events, relevant, clubCode);
   if (persistedPressure) return persistedPressure;
 
-  const latest = relevant.at(-1);
-  const event = latest.event;
   if (latest.role === 'pressure') {
     const critical = event.facts?.band === 'critical';
     const supporting = relevant.filter(row => row.role === 'pressure').slice(-3).map(row => row.event.id);
@@ -238,7 +271,10 @@ function managerArc(events, clubCode, career) {
   }
 
   if (latest.role === 'departed') {
-    const pressure = relevant.filter(row => row.role === 'pressure' && row.event.gameDate <= event.gameDate).slice(-2).map(row => row.event.id);
+    const pressure = relevant
+      .filter(row => ['pressure', 'ultimatum'].includes(row.role) && row.event.gameDate <= event.gameDate)
+      .slice(-3)
+      .map(row => row.event.id);
     return {
       schemaVersion: ARC_SCHEMA_VERSION,
       id: `arc-manager-vacancy-${clubCode}`,
