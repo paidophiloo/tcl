@@ -167,15 +167,52 @@ function matchesAfter(events, clubCode, date) {
     && event.entities?.clubCodes?.includes(clubCode));
 }
 
-function managerArc(events, clubCode) {
+function persistedBoardPressureArc(career, events, relevant, clubCode) {
+  const state = career?.world?.boardState?.clubs?.[clubCode];
+  if (!state || !['pressure', 'critical'].includes(state.band)) return null;
+  const pressureRows = relevant.filter(row => row.role === 'pressure');
+  if (!pressureRows.length) return null;
+  const latestPressure = pressureRows.at(-1).event;
+  const laterManagerChange = relevant.find(row => row.role !== 'pressure' && row.event.gameDate > latestPressure.gameDate);
+  if (laterManagerChange) return null;
+  const history = Array.isArray(state.history) ? state.history : [];
+  const latestReview = history.at(-1) || {};
+  const latestMatch = events.find(event => event.type === CAREER_EVENT_TYPES.MATCH_PLAYED
+    && String(event.facts?.fixtureId || event.links?.fixtureId || '') === String(state.lastReviewedMatchId || ''));
+  const recentMatches = recentClubResults(events, clubCode);
+  return {
+    schemaVersion: ARC_SCHEMA_VERSION,
+    id: `arc-manager-pressure-${clubCode}`,
+    type: 'club.manager-pressure',
+    subject: { clubCode },
+    status: 'active',
+    startedOn: pressureRows[0].event.gameDate,
+    updatedOn: state.lastReviewedDate || latestMatch?.gameDate || latestPressure.gameDate,
+    strength: state.band === 'critical' ? 100 : 86,
+    facts: {
+      managerName: latestPressure.facts?.managerName || career?.managerName || 'Treinador',
+      confidence: Number(state.confidence) || 0,
+      band: state.band,
+      ppg: latestReview.ppg ?? latestPressure.facts?.ppg ?? null,
+      expectedPpg: latestReview.expectedPpg ?? latestPressure.facts?.expectedPpg ?? null,
+      sampleMatches: recentMatches.length
+    },
+    eventIds: [...pressureRows.slice(-3).map(row => row.event.id), latestMatch?.id].filter(Boolean)
+  };
+}
+
+function managerArc(events, clubCode, career) {
   const relevant = events
     .map(event => ({ event, role: managerRoleForClub(event, clubCode) }))
     .filter(row => row.role)
     .sort((left, right) => left.event.gameDate.localeCompare(right.event.gameDate) || left.event.id.localeCompare(right.event.id));
   if (!relevant.length) return null;
+
+  const persistedPressure = persistedBoardPressureArc(career, events, relevant, clubCode);
+  if (persistedPressure) return persistedPressure;
+
   const latest = relevant.at(-1);
   const event = latest.event;
-
   if (latest.role === 'pressure') {
     const critical = event.facts?.band === 'critical';
     const supporting = relevant.filter(row => row.role === 'pressure').slice(-3).map(row => row.event.id);
@@ -325,7 +362,7 @@ export function buildStoryArcs(career, options = {}) {
   }
   const arcs = [];
   for (const clubCode of clubCodes) {
-    for (const arc of [managerArc(events, clubCode), streakArc(events, clubCode), scorerFormArc(events, clubCode), injuryArc(events, clubCode), transferArc(events, clubCode), contractSagaArc(events, clubCode)]) {
+    for (const arc of [managerArc(events, clubCode, career), streakArc(events, clubCode), scorerFormArc(events, clubCode), injuryArc(events, clubCode), transferArc(events, clubCode), contractSagaArc(events, clubCode)]) {
       if (arc) arcs.push(arc);
     }
   }
