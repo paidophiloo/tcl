@@ -143,6 +143,21 @@ function storyQuestion(arc, managerName) {
       ]
     };
   }
+  if (arc.type === 'club.manager-ultimatum') {
+    const window = Math.max(1, Number(arc.facts?.recoveryMatches) || 3);
+    const played = Math.max(0, Number(arc.facts?.matchesPlayedInWindow) || 0);
+    const remaining = Math.max(0, window - played);
+    const confidence = Math.round(Number(arc.facts?.confidence) || 0);
+    return {
+      id: 'story-arc', topic: 'o ultimato da diretoria',
+      prompt: `A diretoria formalizou uma janela de ${window} jogos para reação. ${played} já foi${played === 1 ? '' : 'ram'} disputado${played === 1 ? '' : 's'} e restam ${remaining}. Com a confiança em ${confidence}/100, como você encara esse ultimato?`,
+      options: [
+        option('ultimatum-accountable', 'accountable', 'Assumir a cobrança', `${manager}: "A mensagem da diretoria é clara. Eu assumo a responsabilidade e nossa resposta precisa aparecer dentro de campo, jogo a jogo."`, { morale: 1, pressure: -1 }),
+        option('ultimatum-belief', 'ambitious', 'Sustentar convicção', `${manager}: "O cenário é difícil, mas eu acredito no trabalho e neste elenco. Esses jogos são uma oportunidade para mostrar a nossa resposta."`, { morale: 2, pressure: 1 }),
+        option('ultimatum-focus', 'protective', 'Blindar o elenco', `${manager}: "O ultimato é sobre o meu cargo, não sobre os jogadores. Minha função é proteger o grupo e manter todo mundo focado no próximo jogo."`, { morale: 2, pressure: -2 })
+      ]
+    };
+  }
   if (arc.type === 'club.manager-pressure') {
     const confidence = Math.round(Number(arc.facts?.confidence) || 0);
     const critical = arc.facts?.band === 'critical';
