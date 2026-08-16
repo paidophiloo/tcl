@@ -78,6 +78,35 @@ function seasonRecordText(claim) {
   return 'Nova marca da temporada registrada a partir dos resultados canônicos do save';
 }
 
+function managerChangeText(claim) {
+  const manager = claim.managerName || 'Treinador';
+  if (claim.action === 'manager.sacked') {
+    const ppg = Number.isFinite(Number(claim.ppg)) ? ` · ${Number(claim.ppg).toFixed(2)} ponto(s) por jogo na amostra da revisão` : '';
+    return `${manager} foi demitido pelo ${clubName(claim.clubCode)}${ppg}`;
+  }
+  if (claim.action === 'manager.poached') {
+    return `${manager}: ${clubName(claim.fromClubCode)} → ${clubName(claim.clubCode)}${claim.tacticalStyle ? ` · estilo ${claim.tacticalStyle}` : ''}`;
+  }
+  return `${manager} assumiu o ${clubName(claim.clubCode)}${claim.tacticalStyle ? ` · estilo ${claim.tacticalStyle}` : ''}`;
+}
+
+function contractText(claim) {
+  const player = playerName(claim.playerId);
+  if (claim.action === 'contract.renewed') {
+    return `${player} renovou com o ${clubName(claim.clubCode)}${claim.endDate ? ` até ${claim.endDate}` : ''}`;
+  }
+  if (claim.action === 'contract.renewal-rejected') {
+    return `${player} e ${clubName(claim.clubCode)} encerraram a negociação sem acordo${claim.daysRemaining != null ? ` · ${Number(claim.daysRemaining) || 0} dias restantes no vínculo naquele momento` : ''}`;
+  }
+  if (claim.action === 'contract.expired') {
+    return `${player} encerrou o contrato com o ${clubName(claim.clubCode)}${claim.freeAgent ? ' e tornou-se agente livre' : ''}`;
+  }
+  if (claim.action === 'contract.bosman-precontract-agreed') {
+    return `${player}: pré-contrato acordado para sair do ${clubName(claim.fromClubCode)} e se juntar ao ${clubName(claim.toClubCode)}${claim.startsAt ? ` em ${claim.startsAt}` : ''}`;
+  }
+  return `${player}: atualização contratual registrada pelo Living World`;
+}
+
 function claimText(claim) {
   if (claim.kind === 'score') {
     return `${clubName(claim.homeCode)} ${claim.homeGoals}–${claim.awayGoals} ${clubName(claim.awayCode)}`;
@@ -99,6 +128,8 @@ function claimText(claim) {
   if (claim.kind === 'move') {
     return `${playerName(claim.playerId)}: ${clubName(claim.fromClubCode)} → ${clubName(claim.toClubCode)} · ${money(claim.fee)}`;
   }
+  if (claim.kind === 'manager-change') return managerChangeText(claim);
+  if (claim.kind === 'contract') return contractText(claim);
   if (claim.kind === 'performance') {
     const pieces = [];
     if (Number(claim.goals) > 0) pieces.push(`${Number(claim.goals)} gol${Number(claim.goals) === 1 ? '' : 's'}`);
@@ -161,7 +192,7 @@ function overlayMarkup(article, event, media) {
             <div><dt>Categoria</dt><dd>${esc(article.category === 'club' ? 'Seu clube' : 'Mundo')}</dd></div>
             <div><dt>Validação</dt><dd>FactValidator ✓</dd></div>
           </dl>
-          <small>A interface não adiciona placares, transferências, lesões, cartões, gols, marcos, recordes históricos ou declarações que não existam no estado da carreira.</small>
+          <small>A interface não adiciona placares, transferências, lesões, cartões, gols, marcos, recordes históricos, contratos, trocas de treinador ou declarações que não existam no estado da carreira.</small>
         </aside>
       </div>
     </article>
