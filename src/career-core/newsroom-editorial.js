@@ -1,4 +1,5 @@
 import { CAREER_EVENT_TYPES } from './event-ledger.js';
+import { NEWSROOM_GOVERNANCE_EVENT_TYPES } from './newsroom-governance-types.js';
 import { NEWSROOM_PERFORMANCE_EVENT_TYPES, PERFORMANCE_KINDS, MILESTONE_KINDS, SEASON_RECORD_KINDS } from './newsroom-performance-types.js';
 
 const REQUIRED_FACTS = Object.freeze({
@@ -8,6 +9,13 @@ const REQUIRED_FACTS = Object.freeze({
   [CAREER_EVENT_TYPES.INJURY]: ['daysOut'],
   [CAREER_EVENT_TYPES.TRANSFER_COMPLETED]: ['playerId', 'toClubCode'],
   [CAREER_EVENT_TYPES.LOAN_COMPLETED]: ['playerId', 'fromClubCode', 'toClubCode'],
+  [CAREER_EVENT_TYPES.CONTRACT_RENEWED]: ['playerId', 'clubCode', 'endDate'],
+  [NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED]: ['managerId', 'clubCode', 'managerName'],
+  [NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED]: ['managerId', 'clubCode', 'managerName'],
+  [NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED]: ['managerId', 'clubCode', 'managerName', 'fromClubCode'],
+  [NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED]: ['playerId', 'clubCode'],
+  [NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_EXPIRED]: ['playerId'],
+  [NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED]: ['playerId', 'toClubCode', 'startsAt'],
   [NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE]: ['fixtureId', 'playerId', 'clubCode', 'performanceTypes'],
   [NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE]: ['fixtureId', 'playerId', 'clubCode', 'milestones'],
   [NEWSROOM_PERFORMANCE_EVENT_TYPES.SEASON_RECORD]: ['fixtureId', 'recordKind']
@@ -53,6 +61,29 @@ function transferScore(event, context) {
   const userClub = event.entities?.clubCodes?.includes(context.userClubCode);
   const completion = [CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type);
   return 18 + (completion ? 18 : 4) + Math.min(26, fee / 5_000_000) + Math.max(0, rating - 72) * 1.2 + (userClub ? 16 : 0);
+}
+
+function governanceScore(event, context) {
+  const involvesUser = event.entities?.clubCodes?.includes(context.userClubCode);
+  const facts = event.facts || {};
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED) {
+    const underperformance = Math.max(0, finiteScore(facts.underperformance));
+    return 66 + Math.min(12, underperformance * 14) + (involvesUser ? 10 : 0);
+  }
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED) return 64 + (involvesUser ? 10 : 0);
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED) return 60 + (involvesUser ? 10 : 0);
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED) return 66 + (involvesUser ? 10 : 0);
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_EXPIRED) return 54 + (involvesUser ? 12 : 0);
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED) {
+    const days = Math.max(0, finiteScore(facts.daysRemaining));
+    const urgency = days <= 180 ? 12 : days <= 365 ? 7 : 2;
+    return 48 + urgency + (involvesUser ? 12 : 0);
+  }
+  if (event.type === CAREER_EVENT_TYPES.CONTRACT_RENEWED) {
+    const years = Math.max(0, finiteScore(facts.years));
+    return 44 + Math.min(12, years * 2) + (involvesUser ? 12 : 0);
+  }
+  return 30;
 }
 
 function performanceScore(event, context) {
@@ -122,6 +153,15 @@ function validateSeasonRecord(event, errors) {
   }
 }
 
+function validateGovernance(event, errors) {
+  const facts = event.facts || {};
+  if ([NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED].includes(event.type)) {
+    if (!event.entities?.managerIds?.includes(String(facts.managerId || ''))) errors.push('manager-entity-mismatch');
+  }
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED && finiteScore(facts.daysRemaining) < 0) errors.push('contract-days-invalid');
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED && !facts.fromClubCode) errors.push('fact-missing:fromClubCode');
+}
+
 export function validateNewsFact(event) {
   const errors = [];
   if (!event || typeof event !== 'object') return { valid: false, errors: ['event-missing'] };
@@ -148,6 +188,7 @@ export function validateNewsFact(event) {
   }
   validPerformanceArrays(event, errors);
   validateSeasonRecord(event, errors);
+  validateGovernance(event, errors);
 
   return { valid: errors.length === 0, errors };
 }
@@ -160,6 +201,7 @@ export function scoreNewsworthiness(event, context = {}) {
   if (event.type === CAREER_EVENT_TYPES.MATCH_PLAYED) score = matchScore(event, context);
   else if (event.type === CAREER_EVENT_TYPES.INJURY) score = injuryScore(event, context);
   else if ([CAREER_EVENT_TYPES.TRANSFER_LISTED, CAREER_EVENT_TYPES.TRANSFER_OFFERED, CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) score = transferScore(event, context);
+  else if ([CAREER_EVENT_TYPES.CONTRACT_RENEWED, ...Object.values(NEWSROOM_GOVERNANCE_EVENT_TYPES)].includes(event.type)) score = governanceScore(event, context);
   else if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE) score = performanceScore(event, context);
   else if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_MILESTONE) score = milestoneScore(event, context);
   else if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.SEASON_RECORD) score = seasonRecordScore(event, context);
@@ -212,6 +254,37 @@ export function factualClaimsFromEvent(event) {
   }
   if ([CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) {
     claims.push({ kind: 'move', playerId: event.facts.playerId, fromClubCode: event.facts.fromClubCode, toClubCode: event.facts.toClubCode, fee: event.facts.fee ?? null });
+  }
+  if ([NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED].includes(event.type)) {
+    claims.push({
+      kind: 'manager-change',
+      action: event.type,
+      managerId: event.facts.managerId,
+      managerName: event.facts.managerName,
+      clubCode: event.facts.clubCode,
+      fromClubCode: event.facts.fromClubCode || null,
+      jobSecurity: event.facts.jobSecurity ?? null,
+      ppg: event.facts.ppg ?? null,
+      expectedPpg: event.facts.expectedPpg ?? null,
+      tacticalStyle: event.facts.tacticalStyle || null
+    });
+  }
+  if ([CAREER_EVENT_TYPES.CONTRACT_RENEWED, NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED, NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_EXPIRED, NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED].includes(event.type)) {
+    claims.push({
+      kind: 'contract',
+      action: event.type,
+      playerId: event.facts.playerId,
+      clubCode: event.facts.clubCode || null,
+      fromClubCode: event.facts.fromClubCode || null,
+      toClubCode: event.facts.toClubCode || null,
+      endDate: event.facts.endDate || null,
+      startsAt: event.facts.startsAt || null,
+      weeklyWage: event.facts.weeklyWage ?? null,
+      years: event.facts.years ?? null,
+      reason: event.facts.reason || null,
+      daysRemaining: event.facts.daysRemaining ?? null,
+      freeAgent: Boolean(event.facts.freeAgent)
+    });
   }
   if (event.type === NEWSROOM_PERFORMANCE_EVENT_TYPES.PLAYER_PERFORMANCE) {
     claims.push({
