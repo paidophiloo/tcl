@@ -80,6 +80,13 @@ function seasonRecordText(claim) {
 
 function managerChangeText(claim) {
   const manager = claim.managerName || 'Treinador';
+  if (claim.action === 'manager.under-pressure') {
+    const band = claim.band === 'critical' ? 'crítico' : 'de pressão';
+    const performance = Number.isFinite(Number(claim.ppg)) && Number.isFinite(Number(claim.expectedPpg))
+      ? ` · ${Number(claim.ppg).toFixed(2)} PPG reais vs ${Number(claim.expectedPpg).toFixed(2)} esperados`
+      : '';
+    return `${manager}: confiança da diretoria em nível ${band} (${Number(claim.confidence) || 0}/100) no ${clubName(claim.clubCode)}${performance}`;
+  }
   if (claim.action === 'manager.sacked') {
     const ppg = Number.isFinite(Number(claim.ppg)) ? ` · ${Number(claim.ppg).toFixed(2)} ponto(s) por jogo na amostra da revisão` : '';
     return `${manager} foi demitido pelo ${clubName(claim.clubCode)}${ppg}`;
@@ -192,7 +199,7 @@ function overlayMarkup(article, event, media) {
             <div><dt>Categoria</dt><dd>${esc(article.category === 'club' ? 'Seu clube' : 'Mundo')}</dd></div>
             <div><dt>Validação</dt><dd>FactValidator ✓</dd></div>
           </dl>
-          <small>A interface não adiciona placares, transferências, lesões, cartões, gols, marcos, recordes históricos, contratos, trocas de treinador ou declarações que não existam no estado da carreira.</small>
+          <small>A interface não adiciona placares, transferências, lesões, cartões, gols, marcos, recordes históricos, contratos, trocas de treinador, pressão da diretoria ou declarações que não existam no estado da carreira.</small>
         </aside>
       </div>
     </article>
