@@ -1,4 +1,5 @@
 import { CAREER_EVENT_TYPES, careerEvents } from './event-ledger.js';
+import { NEWSROOM_GOVERNANCE_EVENT_TYPES } from './newsroom-governance-types.js';
 
 const ARC_SCHEMA_VERSION = 1;
 const RECENT_WINDOW = 6;
@@ -144,6 +145,178 @@ function transferArc(events, clubCode) {
   };
 }
 
+const MANAGER_TYPES = new Set([
+  NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE,
+  NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED,
+  NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED,
+  NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED
+]);
+
+function managerRoleForClub(event, clubCode) {
+  if (!MANAGER_TYPES.has(event.type)) return null;
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED && event.facts?.fromClubCode === clubCode) return 'departed';
+  if (event.facts?.clubCode !== clubCode) return null;
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE) return 'pressure';
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED) return 'departed';
+  return 'arrived';
+}
+
+function matchesAfter(events, clubCode, date) {
+  return events.filter(event => event.type === CAREER_EVENT_TYPES.MATCH_PLAYED
+    && event.gameDate > date
+    && event.entities?.clubCodes?.includes(clubCode));
+}
+
+function managerArc(events, clubCode) {
+  const relevant = events
+    .map(event => ({ event, role: managerRoleForClub(event, clubCode) }))
+    .filter(row => row.role)
+    .sort((left, right) => left.event.gameDate.localeCompare(right.event.gameDate) || left.event.id.localeCompare(right.event.id));
+  if (!relevant.length) return null;
+  const latest = relevant.at(-1);
+  const event = latest.event;
+
+  if (latest.role === 'pressure') {
+    const critical = event.facts?.band === 'critical';
+    const supporting = relevant.filter(row => row.role === 'pressure').slice(-3).map(row => row.event.id);
+    return {
+      schemaVersion: ARC_SCHEMA_VERSION,
+      id: `arc-manager-pressure-${clubCode}`,
+      type: 'club.manager-pressure',
+      subject: { clubCode },
+      status: 'active',
+      startedOn: relevant.filter(row => row.role === 'pressure')[0].event.gameDate,
+      updatedOn: event.gameDate,
+      strength: critical ? 100 : 86,
+      facts: {
+        managerName: event.facts?.managerName || 'Treinador',
+        confidence: Number(event.facts?.confidence) || 0,
+        band: event.facts?.band || 'pressure',
+        ppg: event.facts?.ppg ?? null,
+        expectedPpg: event.facts?.expectedPpg ?? null,
+        sampleMatches: Number(event.facts?.sampleMatches) || 0
+      },
+      eventIds: supporting
+    };
+  }
+
+  if (latest.role === 'departed') {
+    const pressure = relevant.filter(row => row.role === 'pressure' && row.event.gameDate <= event.gameDate).slice(-2).map(row => row.event.id);
+    return {
+      schemaVersion: ARC_SCHEMA_VERSION,
+      id: `arc-manager-vacancy-${clubCode}`,
+      type: 'club.manager-vacancy',
+      subject: { clubCode },
+      status: 'active',
+      startedOn: event.gameDate,
+      updatedOn: event.gameDate,
+      strength: 94,
+      facts: {
+        formerManagerName: event.facts?.managerName || 'Treinador',
+        departureType: event.type,
+        fromClubCode: event.facts?.fromClubCode || null
+      },
+      eventIds: [...pressure, event.id]
+    };
+  }
+
+  const played = matchesAfter(events, clubCode, event.gameDate);
+  if (played.length >= 5) return null;
+  const priorDeparture = [...relevant].reverse().find(row => row.role === 'departed' && row.event.gameDate <= event.gameDate);
+  return {
+    schemaVersion: ARC_SCHEMA_VERSION,
+    id: `arc-manager-transition-${clubCode}-${event.facts?.managerId || event.id}`,
+    type: 'club.manager-transition',
+    subject: { clubCode },
+    status: 'active',
+    startedOn: event.gameDate,
+    updatedOn: played.at(-1)?.gameDate || event.gameDate,
+    strength: Math.max(60, 92 - played.length * 7),
+    facts: {
+      managerId: event.facts?.managerId || null,
+      managerName: event.facts?.managerName || 'Treinador',
+      tacticalStyle: event.facts?.tacticalStyle || null,
+      fromClubCode: event.facts?.fromClubCode || null,
+      matchesUnderManager: played.length
+    },
+    eventIds: [priorDeparture?.event.id, event.id, ...played.map(match => match.id)].filter(Boolean)
+  };
+}
+
+const CONTRACT_ARC_TYPES = new Set([
+  CAREER_EVENT_TYPES.CONTRACT_RENEWED,
+  CAREER_EVENT_TYPES.TRANSFER_COMPLETED,
+  NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED,
+  NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_EXPIRED,
+  NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED
+]);
+
+function contractEventTouchesClub(event, clubCode) {
+  if (!CONTRACT_ARC_TYPES.has(event.type)) return false;
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED || event.type === CAREER_EVENT_TYPES.CONTRACT_RENEWED || event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_EXPIRED) {
+    return event.facts?.clubCode === clubCode;
+  }
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED) {
+    return event.facts?.fromClubCode === clubCode || event.facts?.toClubCode === clubCode;
+  }
+  return Boolean(event.facts?.bosman) && (event.facts?.fromClubCode === clubCode || event.facts?.toClubCode === clubCode);
+}
+
+function contractSagaArc(events, clubCode) {
+  const byPlayer = new Map();
+  for (const event of events) {
+    if (!contractEventTouchesClub(event, clubCode)) continue;
+    const playerId = event.facts?.playerId || event.entities?.playerIds?.[0];
+    if (!playerId) continue;
+    const rows = byPlayer.get(playerId) || [];
+    rows.push(event);
+    byPlayer.set(playerId, rows);
+  }
+
+  const candidates = [];
+  for (const [playerId, rows] of byPlayer) {
+    rows.sort((left, right) => left.gameDate.localeCompare(right.gameDate) || left.id.localeCompare(right.id));
+    const latest = rows.at(-1);
+    if (latest.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED && latest.facts?.clubCode === clubCode) {
+      const daysRemaining = Math.max(0, Number(latest.facts?.daysRemaining) || 0);
+      candidates.push({
+        schemaVersion: ARC_SCHEMA_VERSION,
+        id: `arc-contract-risk-${clubCode}-${playerId}`,
+        type: 'player.contract-risk',
+        subject: { clubCode, playerId },
+        status: 'active',
+        startedOn: rows[0].gameDate,
+        updatedOn: latest.gameDate,
+        strength: Math.min(92, 60 + (daysRemaining <= 180 ? 24 : daysRemaining <= 365 ? 15 : 7)),
+        facts: { playerId, daysRemaining, reason: latest.facts?.reason || null },
+        eventIds: rows.slice(-3).map(event => event.id)
+      });
+    }
+    if (latest.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED) {
+      const direction = latest.facts?.fromClubCode === clubCode ? 'departure' : 'arrival';
+      candidates.push({
+        schemaVersion: ARC_SCHEMA_VERSION,
+        id: `arc-bosman-${clubCode}-${playerId}`,
+        type: 'player.bosman-agreement',
+        subject: { clubCode, playerId },
+        status: 'active',
+        startedOn: latest.gameDate,
+        updatedOn: latest.gameDate,
+        strength: direction === 'departure' ? 88 : 78,
+        facts: {
+          playerId,
+          direction,
+          fromClubCode: latest.facts?.fromClubCode || null,
+          toClubCode: latest.facts?.toClubCode || null,
+          startsAt: latest.facts?.startsAt || null
+        },
+        eventIds: rows.slice(-3).map(event => event.id)
+      });
+    }
+  }
+  return candidates.sort((left, right) => right.strength - left.strength || right.updatedOn.localeCompare(left.updatedOn))[0] || null;
+}
+
 export function buildStoryArcs(career, options = {}) {
   const events = careerEvents(career, options.filter || {});
   const clubCodes = new Set(options.clubCodes || []);
@@ -152,7 +325,7 @@ export function buildStoryArcs(career, options = {}) {
   }
   const arcs = [];
   for (const clubCode of clubCodes) {
-    for (const arc of [streakArc(events, clubCode), scorerFormArc(events, clubCode), injuryArc(events, clubCode), transferArc(events, clubCode)]) {
+    for (const arc of [managerArc(events, clubCode), streakArc(events, clubCode), scorerFormArc(events, clubCode), injuryArc(events, clubCode), transferArc(events, clubCode), contractSagaArc(events, clubCode)]) {
       if (arc) arcs.push(arc);
     }
   }
