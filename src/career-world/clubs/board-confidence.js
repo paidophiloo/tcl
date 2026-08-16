@@ -1,8 +1,10 @@
 import { appendWorldEvent } from '../world-events.js';
+import { evaluateSeasonBoardObjective, ensureSeasonBoardObjective } from './board-objectives.js';
 
 const BOARD_SCHEMA_VERSION = 1;
 const WINDOW_MATCHES = 8;
 const MIN_REVIEW_MATCHES = 4;
+const MAX_OBJECTIVE_WEIGHT = .45;
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
 const round = value => Math.round(Number(value) * 100) / 100;
 
@@ -69,14 +71,24 @@ function expectedPointsFor(career, result, clubCode) {
   return clamp(.55 + winProbability * 2.05, .55, 2.55);
 }
 
+function objectiveBlend(progress) {
+  if (!progress || progress.played < 5) return 0;
+  return round(clamp(Number(progress.maturity) || 0, 0, 1) * MAX_OBJECTIVE_WEIGHT);
+}
+
 export function evaluateUserBoardConfidence(career, date) {
   if (!career?.clubCode || !career?.world) return null;
+  ensureSeasonBoardObjective(career, date);
+  const objectiveProgress = evaluateSeasonBoardObjective(career, date);
   const results = userResults(career, date);
   if (!results.length) return {
     matches: 0,
     ppg: null,
     expectedPpg: null,
     performanceGap: 0,
+    recentFormTargetConfidence: 65,
+    objectiveWeight: 0,
+    objective: objectiveProgress,
     targetConfidence: 65,
     latestMatchId: null,
     latestMatchDate: null
@@ -86,31 +98,61 @@ export function evaluateUserBoardConfidence(career, date) {
   const ppg = actualPoints / results.length;
   const expectedPpg = expectedPoints / results.length;
   const performanceGap = ppg - expectedPpg;
-  const targetConfidence = clamp(58 + performanceGap * 28, 5, 95);
+  const recentFormTargetConfidence = clamp(58 + performanceGap * 28, 5, 95);
+  const objectiveWeight = objectiveBlend(objectiveProgress);
+  const targetConfidence = recentFormTargetConfidence * (1 - objectiveWeight)
+    + (Number(objectiveProgress?.score) || 50) * objectiveWeight;
   const latest = results.at(-1);
   return {
     matches: results.length,
     ppg: round(ppg),
     expectedPpg: round(expectedPpg),
     performanceGap: round(performanceGap),
-    targetConfidence: round(targetConfidence),
+    recentFormTargetConfidence: round(recentFormTargetConfidence),
+    objectiveWeight,
+    objective: objectiveProgress,
+    targetConfidence: round(clamp(targetConfidence, 5, 95)),
     latestMatchId: latest.fixtureId,
     latestMatchDate: latest.date
   };
 }
 
+function objectiveSentence(metrics) {
+  const progress = metrics?.objective;
+  const objective = progress?.objective;
+  if (!objective || progress?.status === 'too-early' || progress?.position == null) return '';
+  return ` Na temporada, o clube está em ${progress.position}º; a meta é ${objective.label.toLowerCase()}.`;
+}
+
 function warningMessage(career, metrics, band) {
   const manager = career.managerName || 'Treinador';
+  const objective = objectiveSentence(metrics);
   if (band === 'critical') {
     return {
       subject: 'Diretoria exige reação imediata',
-      body: `${manager}, a confiança da diretoria entrou em nível crítico. Nos últimos ${metrics.matches} jogos, o time registra ${metrics.ppg.toFixed(2)} ponto(s) por partida contra ${metrics.expectedPpg.toFixed(2)} esperado(s). Uma reação esportiva é necessária.`
+      body: `${manager}, a confiança da diretoria entrou em nível crítico. Nos últimos ${metrics.matches} jogos, o time registra ${metrics.ppg.toFixed(2)} ponto(s) por partida contra ${metrics.expectedPpg.toFixed(2)} esperado(s).${objective} Uma reação esportiva é necessária.`
     };
   }
   return {
     subject: 'Pressão crescente sobre os resultados',
-    body: `${manager}, a diretoria está preocupada com a sequência recente. Nos últimos ${metrics.matches} jogos, o time registra ${metrics.ppg.toFixed(2)} ponto(s) por partida contra ${metrics.expectedPpg.toFixed(2)} esperado(s).`
+    body: `${manager}, a diretoria está preocupada com a sequência recente. Nos últimos ${metrics.matches} jogos, o time registra ${metrics.ppg.toFixed(2)} ponto(s) por partida contra ${metrics.expectedPpg.toFixed(2)} esperado(s).${objective}`
   };
+}
+
+function objectivePayload(metrics) {
+  const progress = metrics?.objective;
+  const objective = progress?.objective;
+  return objective ? {
+    objectiveType: objective.type,
+    objectiveLabel: objective.label,
+    targetPositionMax: objective.targetPositionMax,
+    minimumAcceptablePosition: objective.minimumAcceptablePosition,
+    expectedPosition: objective.expectedPosition,
+    currentPosition: progress.position,
+    objectiveScore: progress.score,
+    objectiveStatus: progress.status,
+    objectiveWeight: metrics.objectiveWeight
+  } : {};
 }
 
 function maybeEmitPressure({ career, date, state, previousBand, metrics }) {
@@ -133,7 +175,8 @@ function maybeEmitPressure({ career, date, state, previousBand, metrics }) {
       expectedPpg: metrics.expectedPpg,
       performanceGap: metrics.performanceGap,
       sampleMatches: metrics.matches,
-      latestMatchId: metrics.latestMatchId
+      latestMatchId: metrics.latestMatchId,
+      ...objectivePayload(metrics)
     }
   });
   const message = warningMessage(career, metrics, state.band);
@@ -161,7 +204,15 @@ export function processUserBoardDay({ career, date }) {
   state.lastReviewedMatchId = metrics.latestMatchId;
   state.lastReviewedDate = date;
   if (metrics.matches < MIN_REVIEW_MATCHES) {
-    state.history.push({ date, matchId: metrics.latestMatchId, confidence: state.confidence, band: state.band, provisional: true });
+    state.history.push({
+      date,
+      matchId: metrics.latestMatchId,
+      confidence: state.confidence,
+      band: state.band,
+      provisional: true,
+      objectivePosition: metrics.objective?.position ?? null,
+      objectiveStatus: metrics.objective?.status || 'too-early'
+    });
     career.boardConfidence = state.confidence;
     return { reviewed: true, provisional: true, confidence: state.confidence, band: state.band, pressureEvent: false, metrics };
   }
@@ -179,7 +230,13 @@ export function processUserBoardDay({ career, date }) {
     previousBand,
     ppg: metrics.ppg,
     expectedPpg: metrics.expectedPpg,
-    performanceGap: metrics.performanceGap
+    performanceGap: metrics.performanceGap,
+    recentFormTargetConfidence: metrics.recentFormTargetConfidence,
+    objectiveWeight: metrics.objectiveWeight,
+    objectivePosition: metrics.objective?.position ?? null,
+    objectiveScore: metrics.objective?.score ?? null,
+    objectiveStatus: metrics.objective?.status || null,
+    targetConfidence: metrics.targetConfidence
   });
   if (state.history.length > 120) state.history.splice(0, state.history.length - 120);
 
@@ -197,7 +254,10 @@ export function processUserBoardDay({ career, date }) {
       expectedPpg: metrics.expectedPpg,
       performanceGap: metrics.performanceGap,
       sampleMatches: metrics.matches,
-      latestMatchId: metrics.latestMatchId
+      latestMatchId: metrics.latestMatchId,
+      recentFormTargetConfidence: metrics.recentFormTargetConfidence,
+      targetConfidence: metrics.targetConfidence,
+      ...objectivePayload(metrics)
     },
     visibility: 'system'
   });
@@ -215,6 +275,7 @@ export function userBoardSnapshot(career) {
     clubCode: career.clubCode,
     confidence: state.confidence,
     band: state.band,
+    objective: career.boardObjective || null,
     lastReviewedDate: state.lastReviewedDate,
     lastReviewedMatchId: state.lastReviewedMatchId,
     history: [...state.history]
@@ -224,5 +285,6 @@ export function userBoardSnapshot(career) {
 export const BOARD_CONFIDENCE_META = Object.freeze({
   windowMatches: WINDOW_MATCHES,
   minimumMatches: MIN_REVIEW_MATCHES,
-  invariant: 'user manager pressure is derived from persisted match results versus Elo-based expected points; this engine does not fire the user manager'
+  maximumObjectiveWeight: MAX_OBJECTIVE_WEIGHT,
+  invariant: 'user manager pressure blends persisted recent results versus Elo-based expected points with a gradually maturing frozen season objective; this engine does not fire the user manager'
 });
