@@ -56,6 +56,7 @@ jobs:
           node --check src/career-core/newsroom-press.js
           node --check src/career-core/newsroom-world-bridge.js
           node --check src/career-core/newsroom-match-bridge.js
+          node --check src/career-core/newsroom-governance-types.js
           node --check src/career-core/newsroom-performance-types.js
           node --check src/career-core/newsroom-performance-bridge.js
           node --check src/career-core/newsroom-records-bridge.js
@@ -96,6 +97,7 @@ jobs:
           node --check tests/career-newsroom-ui-smoke.mjs
           node --check tests/career-newsroom-press-smoke.mjs
           node --check tests/career-newsroom-world-bridge-smoke.mjs
+          node --check tests/career-newsroom-governance-smoke.mjs
           node --check tests/career-newsroom-match-bridge-smoke.mjs
           node --check tests/career-newsroom-performance-smoke.mjs
           node --check tests/career-newsroom-records-smoke.mjs
@@ -118,6 +120,7 @@ jobs:
           node tests/career-newsroom-ui-smoke.mjs
           node tests/career-newsroom-press-smoke.mjs
           node tests/career-newsroom-world-bridge-smoke.mjs
+          node tests/career-newsroom-governance-smoke.mjs
           node tests/career-newsroom-match-bridge-smoke.mjs
           node tests/career-newsroom-performance-smoke.mjs
           node tests/career-newsroom-records-smoke.mjs
