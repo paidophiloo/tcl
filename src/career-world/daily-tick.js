@@ -10,6 +10,7 @@ import { processLoanMarketDay } from './loans/loan-engine.js';
 import { processPlayerLifeDay } from './players/player-life-engine.js';
 import { playerUnavailable, processAvailabilityDay } from './players/availability-engine.js';
 import { processManagerMarketDay } from './managers/manager-market.js';
+import { processUserManagerCareerDay } from './managers/user-manager-career.js';
 import { processFinanceDay } from './finance/finance-engine.js';
 import { processDealClearanceDay } from './rules/deal-clearance-engine.js';
 import { effectivePlayerStatus } from './world-employment-index.js';
@@ -50,6 +51,7 @@ export function processDailyTick({ career, date, playerById }) {
   const availability = processAvailabilityDay({ career, date, playerById });
   const managerMarket = processManagerMarketDay({ career, date });
   const board = processUserBoardDay({ career, date });
+  const userManagerCareer = processUserManagerCareerDay({ career, date });
 
   const analyses = {};
   for (const [clubCode, clubState] of Object.entries(world.clubs || {})) {
@@ -83,6 +85,7 @@ export function processDailyTick({ career, date, playerById }) {
     availability,
     managerMarket,
     board,
+    userManagerCareer,
     playerLife,
     contractsExpired: contractExpirations.expired,
     bosmanMoves: contractExpirations.bosmanMoves,
@@ -110,6 +113,12 @@ export function processDailyTick({ career, date, playerById }) {
       userBoardConfidence: board.confidence,
       userBoardBand: board.band,
       userManagerPressureEvent: Boolean(board.pressureEvent),
+      userManagerStatus: userManagerCareer.status,
+      userManagerUltimatumIssued: Boolean(userManagerCareer.issued),
+      userManagerUltimatumResolved: Boolean(userManagerCareer.resolved),
+      userManagerDismissed: Boolean(userManagerCareer.dismissed),
+      userManagerJobVacancies: Number(userManagerCareer.vacancies) || 0,
+      userManagerJobOffers: Number(userManagerCareer.applications?.offers) || 0,
       injuriesFromRecentMatches: availability.injuries,
       playersReturnedFromInjury: availability.returnedFromInjury,
       suspensionsServed: availability.suspensionsServed,
