@@ -87,5 +87,8 @@ const latestPressure = pressureStories.at(-1);
 const pressureArticle = newsroom.feed.find(article => article.eventId === latestPressure.id);
 assert.ok(pressureArticle, 'critical user manager pressure should be publishable');
 assert.match(pressureArticle.title, /Gabriel Machado|pressão/i);
+assert.equal(newsroom.activeStoryArc?.type, 'club.manager-pressure', 'critical board pressure should outrank the generic losing-streak storyline');
+assert.equal(newsroom.activeStoryArc?.facts.managerName, 'Gabriel Machado');
+assert.equal(newsroom.activeStoryArc?.facts.band, 'critical');
 
 console.log('board confidence smoke: ok');
