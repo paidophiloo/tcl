@@ -1,134 +1,31 @@
-import assert from "node:assert/strict";
-import {
-  DECISION_SLICE_SECONDS,
-  MatchEngine,
-  MAX_SUBSTITUTION_WINDOWS,
-  SIMULATION_VERSION,
-  calculateTeamProfile
-} from "../src/match-engine.js";
-import { createMvpMatchData } from "../src/mvp-data.js";
+// Historical filename retained because CI and external scripts already call it.
+// It now validates the V3 engine through the stable public facade.
+import assert from 'node:assert/strict';
+import { DECISION_SLICE_SECONDS, MatchEngine, MAX_SUBSTITUTION_WINDOWS, SIMULATION_VERSION, calculateTeamProfile } from '../src/match-engine.js';
+import { createMvpMatchData } from '../src/mvp-data.js';
 
-function makeEngine({ seed = 2718, homeTactics = {}, awayTactics = {}, requiresWinner = false } = {}) {
-  const data = createMvpMatchData();
-  return new MatchEngine({
-    home: data.home,
-    away: data.away,
-    homeLineup: data.homeLineup,
-    awayLineup: data.awayLineup,
-    homeTactics: { ...data.homeTactics, ...homeTactics },
-    awayTactics: { ...data.awayTactics, ...awayTactics },
-    seed,
-    realDurationSeconds: 120,
-    requiresWinner,
-    strictInvariants: true
-  });
-}
-
-function averageStamina(team) {
-  return team.players.reduce((sum, player) => sum + player.stamina, 0) / team.players.length;
-}
-
-assert.equal(SIMULATION_VERSION, "touchline-match-sim-v2");
-assert.equal(DECISION_SLICE_SECONDS, .25, "the simulation must reevaluate at 250 ms slices");
-assert.equal(MAX_SUBSTITUTION_WINDOWS, 3);
-
+function makeEngine({seed=2718,homeTactics={},awayTactics={},requiresWinner=false,aiTeamIndexes=[]}={}){const d=createMvpMatchData();return new MatchEngine({home:d.home,away:d.away,homeLineup:d.homeLineup,awayLineup:d.awayLineup,homeTactics:{...d.homeTactics,...homeTactics},awayTactics:{...d.awayTactics,...awayTactics},seed,realDurationSeconds:120,requiresWinner,aiTeamIndexes,strictInvariants:true})}
+const stamina=t=>t.players.reduce((s,p)=>s+p.stamina,0)/t.players.length;
+assert.equal(SIMULATION_VERSION,'touchline-match-sim-v3'); assert.equal(DECISION_SLICE_SECONDS,.25); assert.equal(MAX_SUBSTITUTION_WINDOWS,3);
 {
-  const engine = makeEngine();
-  engine.start();
-  engine.processGameWindow(20);
-  const beforePause = engine.getSnapshot().clockSeconds;
-  engine.setPaused(true);
-  engine.tick(1 / 30);
-  engine.tick(1 / 30);
-  assert.equal(engine.getSnapshot().clockSeconds, beforePause, "pause must freeze simulation time exactly");
-  engine.setPaused(false);
-  engine.processGameWindow(.25);
-  assert.ok(engine.getSnapshot().clockSeconds > beforePause, "resume must continue from the frozen instant");
+ const e=makeEngine();e.start();e.processGameWindow(20);const before=e.getSnapshot().clockSeconds;e.setPaused(true);e.tick(1/30);assert.equal(e.getSnapshot().clockSeconds,before);e.setPaused(false);e.processGameWindow(.25);assert.ok(e.getSnapshot().clockSeconds>before);
 }
-
 {
-  const highPress = makeEngine({ homeTactics: { pressing: 92, tempo: 78, counterpress: true } });
-  const lowPress = makeEngine({ homeTactics: { pressing: 22, tempo: 42, counterpress: false } });
-  highPress.start();
-  lowPress.start();
-  highPress.processGameWindow(900);
-  lowPress.processGameWindow(900);
-  assert.ok(
-    averageStamina(highPress.getSnapshot().teams[0]) < averageStamina(lowPress.getSnapshot().teams[0]),
-    "high pressing/tempo must have a measurable physical cost"
-  );
+ const a=makeEngine({seed:404}),b=makeEngine({seed:404});a.start();b.start();a.processGameWindow(900);for(let i=0;i<90;i++)b.processGameWindow(10);assert.deepEqual(a.getSnapshot().score,b.getSnapshot().score);assert.equal(a.getSnapshot().teams[0].stats.passesAttempted,b.getSnapshot().teams[0].stats.passesAttempted);assert.equal(a.getSnapshot().teams[1].stats.shots,b.getSnapshot().teams[1].stats.shots);
 }
-
 {
-  const data = createMvpMatchData();
-  const controlled = calculateTeamProfile(data.home, data.homeLineup, {
-    ...data.homeTactics,
-    mentality: 34,
-    pressing: 35,
-    tempo: 42,
-    passingRisk: 35,
-    counterpress: false
-  });
-  const aggressive = calculateTeamProfile(data.home, data.homeLineup, {
-    ...data.homeTactics,
-    mentality: 78,
-    pressing: 88,
-    tempo: 82,
-    passingRisk: 72,
-    counterpress: true
-  });
-  assert.ok(aggressive.attackIntent > controlled.attackIntent, "tactics must alter attacking intent");
-  assert.ok(aggressive.pressIntensity > controlled.pressIntensity, "tactics must alter pressing intensity");
+ const high=makeEngine({homeTactics:{pressing:92,tempo:78,counterpress:true}}),low=makeEngine({homeTactics:{pressing:22,tempo:42,counterpress:false}});high.start();low.start();high.processGameWindow(900);low.processGameWindow(900);assert.ok(stamina(high.getSnapshot().teams[0])<stamina(low.getSnapshot().teams[0]));
 }
-
 {
-  const engine = makeEngine();
-  engine.start();
-  const team = engine.getSnapshot().teams[0];
-  for (let window = 0; window < 3; window += 1) {
-    const outgoing = team.players.find(player => player.role !== "GK" && !team.substitutedOutIds.includes(String(player.id)));
-    const incoming = team.bench.find(player => !team.usedPlayerIds.includes(String(player.id)));
-    assert.ok(outgoing && incoming, "test squad needs substitution candidates");
-    assert.equal(engine.queueSubstitution(0, outgoing.id, incoming.id).ok, true);
-    engine.applyPendingChanges();
-  }
-  assert.equal(team.substitutionWindowsUsed, 3);
-  const outgoing = team.players.find(player => player.role !== "GK");
-  const incoming = team.bench.find(player => !team.usedPlayerIds.includes(String(player.id)));
-  assert.equal(engine.queueSubstitution(0, outgoing.id, incoming.id).ok, false, "fourth in-play window must be rejected");
+ const d=createMvpMatchData(),controlled=calculateTeamProfile(d.home,d.homeLineup,{...d.homeTactics,mentality:34,pressing:35,tempo:42,passingRisk:35,counterpress:false}),aggressive=calculateTeamProfile(d.home,d.homeLineup,{...d.homeTactics,mentality:78,pressing:88,tempo:82,passingRisk:72,counterpress:true});assert.ok(aggressive.attackIntent>controlled.attackIntent);assert.ok(aggressive.pressIntensity>controlled.pressIntensity);
 }
-
 {
-  const engine = makeEngine();
-  engine.start();
-  engine.state.clockSeconds = 45 * 60;
-  engine.enterHalftime();
-  const team = engine.getSnapshot().teams[0];
-  const outgoing = team.players.find(player => player.role !== "GK");
-  const incoming = team.bench.find(player => !team.usedPlayerIds.includes(String(player.id)));
-  assert.equal(engine.queueSubstitution(0, outgoing.id, incoming.id).ok, true);
-  engine.applyPendingChanges({ halftime: true });
-  assert.equal(team.substitutionsUsed, 1);
-  assert.equal(team.substitutionWindowsUsed, 0, "halftime substitution must not consume an in-play window");
+ const e=makeEngine();e.start();const team=e.getSnapshot().teams[0];for(let w=0;w<3;w++){const out=team.players.find(p=>p.role!=='GK'&&!team.substitutedOutIds.includes(String(p.id))),inc=team.bench.find(p=>!team.usedPlayerIds.includes(String(p.id)));assert.ok(out&&inc);assert.equal(e.queueSubstitution(0,out.id,inc.id).ok,true);e.applyPendingChanges()}assert.equal(team.substitutionWindowsUsed,3);const out=team.players.find(p=>p.role!=='GK'),inc=team.bench.find(p=>!team.usedPlayerIds.includes(String(p.id)));assert.equal(e.queueSubstitution(0,out.id,inc.id).ok,false);
 }
-
 {
-  const league = makeEngine({ requiresWinner: false });
-  league.start();
-  league.state.score = [0, 0];
-  league.state.teams[0].stats.goals = 0;
-  league.state.teams[1].stats.goals = 0;
-  league.finishMatch();
-  assert.equal(league.getSnapshot().shootout, null, "league draw must not trigger penalties");
-
-  const knockout = makeEngine({ requiresWinner: true });
-  knockout.start();
-  knockout.state.score = [0, 0];
-  knockout.state.teams[0].stats.goals = 0;
-  knockout.state.teams[1].stats.goals = 0;
-  knockout.finishMatch();
-  assert.ok(knockout.getSnapshot().shootout, "knockout draw must resolve through a shootout when required");
-  assert.notEqual(knockout.getSnapshot().shootout.goals[0], knockout.getSnapshot().shootout.goals[1]);
+ const e=makeEngine();e.start();e.state.clockSeconds=45*60;e.periodBoundary();const team=e.getSnapshot().teams[0],out=team.players.find(p=>p.role!=='GK'),inc=team.bench.find(p=>!team.usedPlayerIds.includes(String(p.id)));assert.equal(e.queueSubstitution(0,out.id,inc.id).ok,true);e.applyPendingChanges({halftime:true});assert.equal(team.substitutionsUsed,1);assert.equal(team.substitutionWindowsUsed,0);
 }
-
-console.log("Match Engine V2 smoke: OK");
+{
+ const league=makeEngine({requiresWinner:false});league.start();league.state.score=[0,0];league.finishMatch();assert.equal(league.getSnapshot().shootout,null);const cup=makeEngine({requiresWinner:true});cup.start();cup.state.score=[0,0];cup.finishMatch();assert.ok(cup.getSnapshot().shootout);assert.notEqual(cup.getSnapshot().shootout.goals[0],cup.getSnapshot().shootout.goals[1]);
+}
+console.log('Match Engine V3 compatibility smoke: OK');
