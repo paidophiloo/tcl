@@ -45,8 +45,8 @@ function calibratedXg(team, shooter, opponent) {
   const pressure = pressureAround(opponent, shooter);
   const finishing = skill(shooter, ["finishing", "technique", "decisions", "positioning"]);
 
-  // The spatial term is deliberately dominant: a world-class finisher improves
-  // a chance, but cannot turn a 30-metre low-angle attempt into a tap-in.
+  // Space is dominant: elite finishing improves a chance but cannot turn a
+  // low-angle 30-metre effort into the probability of a six-yard tap-in.
   const spatial = .018 + Math.pow(clamp(1 - distance, 0, 1), 2.65) * .34;
   const execution = clamp(.82 + (finishing - 70) / 210, .68, 1.18);
   const contest = clamp(1 - pressure * .19, .55, 1);
@@ -59,25 +59,52 @@ function worldGoalPoint(team, random) {
 }
 
 /**
- * Public engine layer. The tactical slice engine owns time, agents, decisions,
- * roles and rules; this class owns statistical calibration that can evolve
- * independently without coupling the renderer or UI to probability constants.
+ * Public calibration layer. The 250ms tactical engine continuously evaluates
+ * players and space; this layer decides whether a selected shooting intention
+ * has actually matured into a viable attempt and calibrates shot outcomes.
  */
 export class MatchEngine extends TacticalSliceEngine {
+  constructor(options = {}) {
+    super(options);
+    this.lastAcceptedShotAt = [-999, -999];
+  }
+
   resolveShot(teamIndex, shooter) {
     const state = this.state;
     const team = state.teams[teamIndex];
     const opponent = state.teams[1 - teamIndex];
+    const local = localPosition(team, shooter);
+    const xG = calibratedXg(team, shooter, opponent);
+    const pressure = pressureAround(opponent, shooter);
+    const secondsSinceShot = state.clockSeconds - this.lastAcceptedShotAt[teamIndex];
+
+    // A player's decision to look for goal is not automatically a registered
+    // shot. The attempt only materialises when position, space, tactical risk
+    // and recent attacking rhythm make the window viable. Rejected intentions
+    // become a carry, so the same agents keep creating the next phase instead
+    // of emitting arcade-like shots every few simulation decisions.
+    const territorialQuality = clamp((local.x - .52) / .42, 0, 1);
+    const tacticalRisk = .8 + team.tactics.mentality / 250 + team.tactics.passingRisk / 500;
+    const rhythm = secondsSinceShot < 35 ? .08 : secondsSinceShot < 70 ? .34 : secondsSinceShot < 110 ? .68 : 1;
+    const opportunityProbability = clamp(
+      (.018 + xG * .25 + territorialQuality * .035) * tacticalRisk * rhythm * clamp(1 - pressure * .08, .78, 1),
+      .006,
+      .16
+    );
+
+    if (local.x < .55 || !this.rng.chance(opportunityProbability)) {
+      this.resolveCarry(teamIndex, shooter);
+      return;
+    }
+    this.lastAcceptedShotAt[teamIndex] = state.clockSeconds;
+
     const goalkeeper = opponent.players.find(player => player.role === "GK" && !player.redCard)
       || opponent.players.find(player => !player.redCard);
-    const xG = calibratedXg(team, shooter, opponent);
     const finishing = skill(shooter, ["finishing", "technique", "decisions"]);
     const keeping = goalkeeper ? skill(goalkeeper, ["goalkeeping", "positioning", "decisions"]) : 58;
-    const pressure = pressureAround(opponent, shooter);
 
-    // On-target and goal are separate stages. Most importantly, xG remains the
-    // unconditional scoring probability for the shot, not a multiplier that is
-    // divided away after the on-target roll.
+    // On-target and goal are distinct stages. xG remains the unconditional
+    // scoring probability for the registered shot.
     const onTargetProbability = clamp(.38 + (finishing - 70) / 190 + xG * .55 - pressure * .07, .27, .72);
     const keeperAdjustment = clamp(1 + (finishing - keeping) / 260, .78, 1.2);
     const unconditionalGoalProbability = clamp(xG * keeperAdjustment, .008, .52);
@@ -95,7 +122,7 @@ export class MatchEngine extends TacticalSliceEngine {
       state.ball.z = 0;
       this.addEvent("shot", teamIndex, shooter.id, `${shooter.player.name} finalizou para fora.`, { xG });
       this.stoppage("goalKick");
-      this.state.possessionTeamIndex = 1 - teamIndex;
+      state.possessionTeamIndex = 1 - teamIndex;
       const restart = goalkeeper || opponent.players.find(player => !player.redCard);
       if (restart) {
         state.ball.carrierId = restart.id;
@@ -140,7 +167,7 @@ export class MatchEngine extends TacticalSliceEngine {
       this.stoppage("corner");
     } else {
       this.stoppage("keeperBall");
-      this.state.possessionTeamIndex = 1 - teamIndex;
+      state.possessionTeamIndex = 1 - teamIndex;
       if (goalkeeper) {
         state.ball.carrierId = goalkeeper.id;
         state.ball.x = goalkeeper.x;
