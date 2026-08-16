@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict';
 import { WORLD_PLAYER_BY_ID } from '../src/career-world/world-player-database.js';
+import { ensureEventLedger, careerEvents } from '../src/career-core/event-ledger.js';
+import { reconcileWorldNewsEvents } from '../src/career-core/newsroom-world-bridge.js';
+import { NEWSROOM_GOVERNANCE_EVENT_TYPES } from '../src/career-core/newsroom-governance-types.js';
+import { scoreNewsworthiness, validateNewsFact } from '../src/career-core/newsroom-editorial.js';
+import { buildCareerNewsroom } from '../src/career-core/newsroom-engine.js';
+import { strongestStoryArc } from '../src/career-core/newsroom-story-arcs.js';
 import {
   acceptManagerJob,
   applyForManagerJob,
@@ -106,6 +112,24 @@ assert.equal(recoveryCareer.managerCareer.ultimatum.recoveryMatches, 3);
 assert.equal(recoveryCareer.status, 'active');
 assert.ok(recoveryCareer.inbox.some(message => message.subject.includes('Ultimato')));
 
+ensureEventLedger(recoveryCareer);
+reconcileWorldNewsEvents(recoveryCareer);
+const formalUltimatum = careerEvents(recoveryCareer, { type: NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_ULTIMATUM })[0];
+assert.ok(formalUltimatum, 'formal board ultimatum must project into the Newsroom ledger');
+assert.equal(formalUltimatum.facts.recoveryMatches, 3);
+assert.equal(validateNewsFact(formalUltimatum).valid, true);
+assert.ok(scoreNewsworthiness(formalUltimatum, { userClubCode: 'MUN' }).score >= 85, 'formal ultimatum must outrank generic manager pressure');
+assert.equal(strongestStoryArc(recoveryCareer, 'MUN')?.type, 'club.manager-ultimatum', 'formal ultimatum must become the strongest active manager story');
+const ultimatumNewsroom = buildCareerNewsroom(recoveryCareer, {
+  userClubCode: 'MUN', currentDate: recoveryCareer.currentDate,
+  clubResolver: code => ({ MUN: 'Manchester United', WHU: 'West Ham United' })[code] || code,
+  playerResolver: id => id
+});
+const ultimatumArticle = ultimatumNewsroom.feed.find(article => article.eventId === formalUltimatum.id);
+assert.ok(ultimatumArticle, 'formal ultimatum must publish as factual Newsroom material');
+assert.match(ultimatumArticle.title, /3 jogos|reagir/i);
+assert.ok(ultimatumArticle.factualClaims.some(claim => claim.action === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_ULTIMATUM && claim.recoveryMatches === 3));
+
 recoveryCareer.world.boardState.clubs.MUN.history.push({
   date: '2026-10-05', matchId: 'm7', confidence: 42, band: 'scrutiny', ppg: 1.4, expectedPpg: 1.55, performanceGap: -.15
 });
@@ -117,6 +141,11 @@ assert.equal(step.resolved, true, 'a factual recovery must close the ultimatum')
 assert.equal(step.dismissed, false);
 assert.equal(recoveryCareer.managerCareer.ultimatum, null);
 assert.equal(recoveryCareer.clubCode, 'MUN');
+reconcileWorldNewsEvents(recoveryCareer);
+const survived = careerEvents(recoveryCareer, { type: NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_ULTIMATUM_SURVIVED })[0];
+assert.ok(survived, 'survived ultimatum must become a recorded resolution story');
+assert.equal(validateNewsFact(survived).valid, true);
+assert.notEqual(strongestStoryArc(recoveryCareer, 'MUN')?.type, 'club.manager-ultimatum', 'survival must close the formal ultimatum arc instead of leaving stale crisis context');
 
 const firedCareer = baseCareer();
 step = processUserManagerCareerDay({ career: firedCareer, date: '2026-10-01' });
