@@ -1,0 +1,4 @@
+import { contextualSkill } from '../core/player-attributes.js';
+const LOAD={walk:.0002,jog:.0008,run:.0017,sprint:.0032,press:.0038,duel:.0026,jump:.0022,dribble:.0024,recovery:.0035};
+export function drainEnergy(player,seconds,activity='jog',teamTactics={}){const stamina=contextualSkill(player,['stamina','workRate','physical'],{fatigueWeight:0});const resilience=.72+stamina/250;const tactical=(.82+(teamTactics.pressing??60)/220)*(.9+(teamTactics.tempo??55)/300);const cost=(LOAD[activity]??LOAD.jog)*seconds*tactical/resilience*100;player.stamina=Math.max(1,Math.min(100,(player.stamina??100)-cost));player.matchLoad=(player.matchLoad||0)+cost;return cost}
+export function activityFor(player,state,teamIndex){if(player.currentActivity)return player.currentActivity;const owns=state.possessionTeamIndex===teamIndex;if(!owns&&(state.teams[teamIndex].tactics?.pressing??60)>70)return 'press';return owns?'jog':'run'}

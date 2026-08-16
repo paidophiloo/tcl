@@ -1,0 +1,4 @@
+import { contextualSkill } from '../core/player-attributes.js';
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+export function createReferee(seedBias=0){return {strictness:clamp(.48+seedBias*.15,.3,.72),advantage:clamp(.62-seedBias*.08,.42,.78),cardThreshold:clamp(.58-seedBias*.1,.42,.74)}}
+export function evaluateChallenge({defender,attacker,duel,referee,rng,inBox=false}){const aggression=contextualSkill(defender,['aggression','tackling','decisions'])/100;const bad=Math.max(0,(duel?.probability??.5)-.52);const foulP=clamp(.025+aggression*.035+bad*.09+(inBox?-.006:0),.01,.16);if(!rng.chance(foulP))return {foul:false};const severity=rng.next()+aggression*.08;const red=severity>.998-referee.strictness*.003;const yellow=!red&&severity>.78-referee.strictness*.13;return {foul:true,yellow,red,penalty:inBox,severity}}

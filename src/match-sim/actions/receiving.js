@@ -1,0 +1,3 @@
+import { contextualSkill } from '../core/player-attributes.js'; import { pressureAtPoint } from '../spatial/pressure-map.js';
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+export function resolveReception(state,teamIndex,receiver,rng,{passQuality=1}={}){const opp=state.teams[1-teamIndex],pressure=pressureAtPoint(opp,receiver);const control=contextualSkill(receiver,['firstTouch','technique','composure','anticipation']);const clean=clamp(.38+control/180+passQuality*.12-pressure*.12,.2,.98);const success=rng.chance(clean);return {success,cleanProbability:clean,pressure,touchError:success?0:clamp((1-clean)*.12,.015,.11)}}

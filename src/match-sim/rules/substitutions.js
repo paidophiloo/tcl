@@ -1,0 +1,2 @@
+export function canQueueSubstitution(team,rules,{halftime=false}={}){if(team.substitutionsUsed>=rules.maxSubstitutions)return {ok:false,reason:'Limite de substituições atingido.'};if(!halftime&&team.substitutionWindowsUsed>=rules.maxSubstitutionWindows)return {ok:false,reason:'As janelas de substituição já foram utilizadas.'};return {ok:true}}
+export function registerSubstitution(team,rules,{halftime=false}={}){team.substitutionsUsed+=1;if(!halftime||rules.halftimeConsumesWindow)team.substitutionWindowsUsed+=1}
