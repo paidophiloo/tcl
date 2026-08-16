@@ -13,6 +13,7 @@ const REQUIRED_FACTS = Object.freeze({
   [NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED]: ['managerId', 'clubCode', 'managerName'],
   [NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED]: ['managerId', 'clubCode', 'managerName'],
   [NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED]: ['managerId', 'clubCode', 'managerName', 'fromClubCode'],
+  [NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE]: ['clubCode', 'managerName', 'confidence', 'band', 'sampleMatches'],
   [NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED]: ['playerId', 'clubCode'],
   [NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_EXPIRED]: ['playerId'],
   [NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED]: ['playerId', 'toClubCode', 'startsAt'],
@@ -66,6 +67,11 @@ function transferScore(event, context) {
 function governanceScore(event, context) {
   const involvesUser = event.entities?.clubCodes?.includes(context.userClubCode);
   const facts = event.facts || {};
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE) {
+    const confidence = clampScore(facts.confidence);
+    const critical = facts.band === 'critical';
+    return (critical ? 72 : 58) + Math.min(10, Math.max(0, 30 - confidence) / 3) + (involvesUser ? 10 : 0);
+  }
   if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED) {
     const underperformance = Math.max(0, finiteScore(facts.underperformance));
     return 66 + Math.min(12, underperformance * 14) + (involvesUser ? 10 : 0);
@@ -84,6 +90,10 @@ function governanceScore(event, context) {
     return 44 + Math.min(12, years * 2) + (involvesUser ? 12 : 0);
   }
   return 30;
+}
+
+function clampScore(value) {
+  return Math.max(0, Math.min(100, finiteScore(value)));
 }
 
 function performanceScore(event, context) {
@@ -157,6 +167,11 @@ function validateGovernance(event, errors) {
   const facts = event.facts || {};
   if ([NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED].includes(event.type)) {
     if (!event.entities?.managerIds?.includes(String(facts.managerId || ''))) errors.push('manager-entity-mismatch');
+  }
+  if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE) {
+    if (!['pressure', 'critical'].includes(facts.band)) errors.push('manager-pressure-band-invalid');
+    if (finiteScore(facts.confidence) < 0 || finiteScore(facts.confidence) > 100) errors.push('manager-confidence-invalid');
+    if (finiteScore(facts.sampleMatches) < 4) errors.push('manager-pressure-sample-invalid');
   }
   if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED && finiteScore(facts.daysRemaining) < 0) errors.push('contract-days-invalid');
   if (event.type === NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED && !facts.fromClubCode) errors.push('fact-missing:fromClubCode');
@@ -255,18 +270,22 @@ export function factualClaimsFromEvent(event) {
   if ([CAREER_EVENT_TYPES.TRANSFER_COMPLETED, CAREER_EVENT_TYPES.LOAN_COMPLETED].includes(event.type)) {
     claims.push({ kind: 'move', playerId: event.facts.playerId, fromClubCode: event.facts.fromClubCode, toClubCode: event.facts.toClubCode, fee: event.facts.fee ?? null });
   }
-  if ([NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED].includes(event.type)) {
+  if ([NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED, NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_UNDER_PRESSURE].includes(event.type)) {
     claims.push({
       kind: 'manager-change',
       action: event.type,
-      managerId: event.facts.managerId,
+      managerId: event.facts.managerId || null,
       managerName: event.facts.managerName,
       clubCode: event.facts.clubCode,
       fromClubCode: event.facts.fromClubCode || null,
       jobSecurity: event.facts.jobSecurity ?? null,
       ppg: event.facts.ppg ?? null,
       expectedPpg: event.facts.expectedPpg ?? null,
-      tacticalStyle: event.facts.tacticalStyle || null
+      tacticalStyle: event.facts.tacticalStyle || null,
+      confidence: event.facts.confidence ?? null,
+      band: event.facts.band || null,
+      performanceGap: event.facts.performanceGap ?? null,
+      sampleMatches: event.facts.sampleMatches ?? null
     });
   }
   if ([CAREER_EVENT_TYPES.CONTRACT_RENEWED, NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED, NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_EXPIRED, NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED].includes(event.type)) {
