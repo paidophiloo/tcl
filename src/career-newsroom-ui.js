@@ -128,11 +128,16 @@ function storyArcMarkup(arc) {
     'form.losing-streak': 'SOB PRESSÃO',
     'player.scoring-form': 'ARTILHEIRO EM ALTA',
     'squad.injury-pressure': 'ELENCO',
-    'club.transfer-activity': 'MERCADO'
+    'club.transfer-activity': 'MERCADO',
+    'club.manager-pressure': 'DIRETORIA',
+    'club.manager-vacancy': 'COMANDO TÉCNICO',
+    'club.manager-transition': 'NOVO CICLO',
+    'player.contract-risk': 'CONTRATO',
+    'player.bosman-agreement': 'PRÉ-CONTRATO'
   };
-  const scorer = arc.type === 'player.scoring-form'
-    ? WORLD_PLAYER_BY_ID.get(arc.facts?.playerId)?.name || arc.facts?.playerId || 'Jogador'
-    : null;
+  const playerId = arc.facts?.playerId || arc.subject?.playerId || null;
+  const player = playerId ? WORLD_PLAYER_BY_ID.get(playerId)?.name || playerId : null;
+  const scorer = arc.type === 'player.scoring-form' ? player || 'Jogador' : null;
   const title = arc.type === 'form.winning-streak'
     ? `${arc.facts?.streak || 0} vitórias seguidas`
     : arc.type === 'form.losing-streak'
@@ -141,7 +146,17 @@ function storyArcMarkup(arc) {
         ? `${scorer}: ${arc.facts?.goals || 0} gols em ${arc.facts?.matchesScoredIn || 0} dos últimos ${arc.facts?.windowMatches || 0} jogos`
         : arc.type === 'squad.injury-pressure'
           ? `${arc.facts?.activeInjuries || 0} desfalques ativos`
-          : `${arc.facts?.activity || 0} movimentos recentes`;
+          : arc.type === 'club.manager-pressure'
+            ? `${arc.facts?.managerName || 'Treinador'}: confiança ${Math.round(Number(arc.facts?.confidence) || 0)}/100 · ${arc.facts?.band === 'critical' ? 'nível crítico' : 'sob pressão'}`
+            : arc.type === 'club.manager-vacancy'
+              ? `${arc.facts?.formerManagerName || 'Treinador'} deixou o comando; cargo está vago`
+              : arc.type === 'club.manager-transition'
+                ? `${arc.facts?.managerName || 'Novo treinador'}: ${Number(arc.facts?.matchesUnderManager) || 0} jogo(s) desde a chegada`
+                : arc.type === 'player.contract-risk'
+                  ? `${player || 'Jogador'}: renovação sem acordo · ${Number(arc.facts?.daysRemaining) || 0} dias restantes`
+                  : arc.type === 'player.bosman-agreement'
+                    ? `${player || 'Jogador'}: ${arc.facts?.direction === 'departure' ? 'saída' : 'chegada'} acertada por pré-contrato`
+                    : `${arc.facts?.activity || 0} movimentos recentes`;
   return `<aside class="tn-story-arc">
     <span>${esc(labels[arc.type] || 'HISTÓRIA EM CURSO')}</span>
     <strong>${esc(title)}</strong>
