@@ -134,10 +134,12 @@ const newsroom = buildCareerNewsroom(career, {
   playerResolver: id => id
 });
 
-for (const event of [sacked, hired, poached, renewed, rejected, expired, preContract, bosmanMove]) {
-  assert.ok(newsroom.feed.some(article => article.eventId === event.id), `expected governance story ${event.id} in current edition`);
+for (const event of [hired, poached, renewed, rejected, expired, preContract, bosmanMove]) {
+  assert.ok(newsroom.feed.some(article => article.eventId === event.id), `expected current governance story ${event.id} in current edition`);
 }
-assert.ok(newsroom.feed.find(article => article.eventId === sacked.id)?.factualClaims.some(claim => claim.kind === 'manager-change'));
+assert.equal(newsroom.feed.some(article => article.eventId === sacked.id), false, 'new Chelsea appointment must supersede the older Chelsea dismissal on the current edition');
+assert.ok(career.eventLedger.events.some(event => event.id === sacked.id), 'superseded dismissal must remain preserved in the factual Event Ledger');
+assert.ok(newsroom.feed.find(article => article.eventId === hired.id)?.factualClaims.some(claim => claim.kind === 'manager-change'));
 assert.ok(newsroom.feed.find(article => article.eventId === renewed.id)?.factualClaims.some(claim => claim.kind === 'contract'));
 assert.ok(newsroom.feed.find(article => article.eventId === preContract.id)?.factualClaims.some(claim => claim.kind === 'contract'));
 
