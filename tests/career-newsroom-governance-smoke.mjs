@@ -3,6 +3,7 @@ import { ensureEventLedger, CAREER_EVENT_TYPES, careerEvents } from '../src/care
 import { NEWSROOM_GOVERNANCE_EVENT_TYPES } from '../src/career-core/newsroom-governance-types.js';
 import { reconcileWorldNewsEvents } from '../src/career-core/newsroom-world-bridge.js';
 import { validateNewsFact, scoreNewsworthiness } from '../src/career-core/newsroom-editorial.js';
+import { buildStoryArcs } from '../src/career-core/newsroom-story-arcs.js';
 import { buildCareerNewsroom } from '../src/career-core/newsroom-engine.js';
 
 const career = {
@@ -114,6 +115,17 @@ assert.equal(validateNewsFact(bosmanMove).valid, true);
 const count = career.eventLedger.events.length;
 reconcileWorldNewsEvents(career);
 assert.equal(career.eventLedger.events.length, count, 'governance projection must be idempotent');
+
+const arcs = buildStoryArcs(career);
+const cheTransition = arcs.find(arc => arc.type === 'club.manager-transition' && arc.subject.clubCode === 'CHE');
+assert.ok(cheTransition, 'sacking followed by hiring should become an active manager transition arc');
+assert.equal(cheTransition.facts.managerName, 'New Manager');
+assert.equal(cheTransition.facts.matchesUnderManager, 0);
+const whuVacancy = arcs.find(arc => arc.type === 'club.manager-vacancy' && arc.subject.clubCode === 'WHU');
+assert.ok(whuVacancy, 'a club losing its manager to poaching must have a factual vacancy arc until replacement');
+const mciBosman = arcs.find(arc => arc.type === 'player.bosman-agreement' && arc.subject.clubCode === 'MCI' && arc.facts.playerId === 'p-bosman');
+assert.ok(mciBosman, 'Bosman pre-contract must stay alive as a contract story until the move resolves');
+assert.equal(mciBosman.facts.direction, 'arrival');
 
 const newsroom = buildCareerNewsroom(career, {
   userClubCode: 'MUN',
