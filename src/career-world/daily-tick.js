@@ -2,6 +2,7 @@ import { appendWorldEvent, eventsOnDate } from './world-events.js';
 import { squadForWorld } from './world-selectors.js';
 import { evaluateClubSquad } from './clubs/squad-analysis.js';
 import { processSellingAiDay } from './clubs/selling-ai.js';
+import { processUserBoardDay } from './clubs/board-confidence.js';
 import { processTransferMarketDay } from './transfers/transfer-engine.js';
 import { processRumorMarketDay, reconcileRumorsAfterTransfers } from './transfers/rumor-engine.js';
 import { processContractExpirations, processContractMarketDay } from './contracts/contract-engine.js';
@@ -48,6 +49,7 @@ export function processDailyTick({ career, date, playerById }) {
   world.currentDate = date;
   const availability = processAvailabilityDay({ career, date, playerById });
   const managerMarket = processManagerMarketDay({ career, date });
+  const board = processUserBoardDay({ career, date });
 
   const analyses = {};
   for (const [clubCode, clubState] of Object.entries(world.clubs || {})) {
@@ -80,6 +82,7 @@ export function processDailyTick({ career, date, playerById }) {
     clubsEvaluated: Object.keys(analyses).length,
     availability,
     managerMarket,
+    board,
     playerLife,
     contractsExpired: contractExpirations.expired,
     bosmanMoves: contractExpirations.bosmanMoves,
@@ -103,6 +106,10 @@ export function processDailyTick({ career, date, playerById }) {
       managersSacked: managerMarket.sacked,
       managersHired: managerMarket.hired,
       managerVacancies: managerMarket.vacancies,
+      userBoardReviewed: Boolean(board.reviewed),
+      userBoardConfidence: board.confidence,
+      userBoardBand: board.band,
+      userManagerPressureEvent: Boolean(board.pressureEvent),
       injuriesFromRecentMatches: availability.injuries,
       playersReturnedFromInjury: availability.returnedFromInjury,
       suspensionsServed: availability.suspensionsServed,
