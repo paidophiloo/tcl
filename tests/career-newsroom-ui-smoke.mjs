@@ -34,9 +34,18 @@ assert.match(ui, /renovação sem acordo/, 'contract-risk arc must present the u
 assert.match(ui, /class="tn-archive-row" data-news-article=/, 'archive rows must expose article ids to the shared article reader');
 assert.match(ui, /nav\.querySelectorAll\('\[data-route\]\.active'\)/, 'legacy home route must not stay highlighted while newsroom is active');
 assert.match(ui, /newsroomRenderedKey === key && content\.querySelector\('\[data-touchline-newsroom\]'\)/, 'same snapshot should not recursively rerender itself');
-assert.match(ui, /new MutationObserver\(scheduleProjection\)/);
+assert.match(ui, /function setText\(node, value\)/, 'home projection must avoid replacing identical text nodes');
+assert.match(ui, /node\.textContent === next/, 'identical newsroom copy must be a DOM no-op');
+assert.match(ui, /homeHydrationToken/, 'stale async home media hydration must be cancellable');
+assert.match(ui, /preloadImage\(url/, 'newsroom media must be loaded before replacing the visible home image');
+assert.match(ui, /token !== homeHydrationToken/, 'stale media responses must never overwrite a newer headline');
+assert.match(ui, /target\.closest\('\.tl-news-slide article, \.tl-news-image, \[data-touchline-newsroom\]'\)/, 'newsroom observer must ignore mutations caused by its own projection');
+assert.match(ui, /new MutationObserver\(mutations =>/);
 assert.match(css, /\.cp-content\.cp-content-newsroom/);
 assert.match(css, /\.tn-article\.is-featured/);
+assert.match(css, /\.tl-newsroom-media-player img\{object-fit:contain!important/, 'home player portraits must not use destructive cover crops');
+assert.match(css, /\.tn-article-media\.tn-media-player img\{object-fit:contain/, 'newsroom player portraits must preserve the full portrait composition');
+assert.match(css, /\.tn-article-media\.tn-media-stadium img\{object-fit:cover/, 'stadium photography should retain editorial cover treatment');
 assert.match(css, /@media\(max-width:760px\)/);
 
 assert.match(pressUi, /buildPressConference\(career\)/);
