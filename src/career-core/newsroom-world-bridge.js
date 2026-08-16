@@ -1,7 +1,20 @@
 import { CAREER_EVENT_TYPES, appendCareerEvent } from './event-ledger.js';
+import { NEWSROOM_GOVERNANCE_EVENT_TYPES, GOVERNANCE_WORLD_TYPES } from './newsroom-governance-types.js';
+import { CLUB_BY_CODE } from './season-2026-27-live.js';
+import { WORLD_PLAYER_BY_ID } from '../career-world/world-player-database.js';
 
 function compact(values = []) {
   return [...new Set(values.filter(Boolean).map(String))];
+}
+
+function clubName(code) {
+  if (!code) return 'clube';
+  return CLUB_BY_CODE.get(code)?.name || code;
+}
+
+function playerName(id) {
+  if (!id) return 'Jogador';
+  return WORLD_PLAYER_BY_ID.get(id)?.name || 'Jogador';
 }
 
 function transferEntities(event) {
@@ -20,6 +33,156 @@ function transferEntities(event) {
   };
 }
 
+function governanceEvent(worldEvent, common) {
+  const entities = worldEvent.entities || {};
+  const payload = worldEvent.payload || {};
+
+  if (worldEvent.type === 'MANAGER_SACKED') {
+    const managerName = payload.managerName || 'Treinador';
+    const club = clubName(entities.clubCode);
+    return {
+      ...common,
+      type: NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_SACKED,
+      entities: { clubCodes: compact([entities.clubCode]), managerIds: compact([entities.managerId]) },
+      facts: {
+        managerId: entities.managerId,
+        clubCode: entities.clubCode,
+        managerName,
+        jobSecurity: Number(payload.jobSecurity) || 0,
+        ppg: payload.ppg == null ? null : Number(payload.ppg),
+        expectedPpg: payload.expectedPpg == null ? null : Number(payload.expectedPpg),
+        underperformance: payload.underperformance == null ? null : Number(payload.underperformance),
+        headline: `${club} demite ${managerName}`,
+        summary: `${managerName} deixou o comando do ${club} após a revisão de desempenho registrada pelo Living World.`
+      },
+      context: { worldEventType: worldEvent.type }
+    };
+  }
+
+  if (worldEvent.type === 'MANAGER_HIRED' || worldEvent.type === 'MANAGER_POACHED') {
+    const managerName = payload.managerName || 'Treinador';
+    const destination = clubName(entities.clubCode);
+    const source = entities.fromClubCode ? clubName(entities.fromClubCode) : null;
+    const poached = worldEvent.type === 'MANAGER_POACHED';
+    return {
+      ...common,
+      type: poached ? NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_POACHED : NEWSROOM_GOVERNANCE_EVENT_TYPES.MANAGER_HIRED,
+      entities: {
+        clubCodes: compact([entities.clubCode, entities.fromClubCode]),
+        managerIds: compact([entities.managerId])
+      },
+      facts: {
+        managerId: entities.managerId,
+        clubCode: entities.clubCode,
+        fromClubCode: entities.fromClubCode || null,
+        managerName,
+        tacticalStyle: payload.tacticalStyle || null,
+        fitScore: payload.fitScore == null ? null : Number(payload.fitScore),
+        headline: poached && source
+          ? `${managerName} troca o ${source} pelo ${destination}`
+          : `${destination} anuncia ${managerName} como novo treinador`,
+        summary: poached && source
+          ? `${destination} tirou ${managerName} do ${source}; a mudança foi registrada pelo mercado de treinadores do Living World.`
+          : `${managerName} assumiu o comando permanente do ${destination} após o processo de contratação do clube.`
+      },
+      context: { worldEventType: worldEvent.type }
+    };
+  }
+
+  if (worldEvent.type === 'CONTRACT_RENEWED') {
+    const name = playerName(entities.playerId);
+    const club = clubName(entities.clubCode);
+    return {
+      ...common,
+      type: CAREER_EVENT_TYPES.CONTRACT_RENEWED,
+      entities: { playerIds: compact([entities.playerId]), clubCodes: compact([entities.clubCode]) },
+      facts: {
+        playerId: entities.playerId,
+        clubCode: entities.clubCode,
+        weeklyWage: Number(payload.weeklyWage) || 0,
+        endDate: payload.endDate || null,
+        years: Number(payload.years) || 0,
+        playingTime: payload.playingTime || null,
+        agentFee: Number(payload.agentFee) || 0,
+        signingBonus: Number(payload.signingBonus) || 0,
+        headline: `${name} renova contrato com o ${club}`,
+        summary: payload.endDate
+          ? `${name} acertou um novo vínculo com o ${club} até ${payload.endDate}.`
+          : `${name} e ${club} concluíram a renovação contratual.`
+      },
+      context: { worldEventType: worldEvent.type }
+    };
+  }
+
+  if (worldEvent.type === 'CONTRACT_RENEWAL_REJECTED') {
+    const name = playerName(entities.playerId);
+    const club = clubName(entities.clubCode);
+    return {
+      ...common,
+      type: NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_RENEWAL_REJECTED,
+      entities: { playerIds: compact([entities.playerId]), clubCodes: compact([entities.clubCode]) },
+      facts: {
+        playerId: entities.playerId,
+        clubCode: entities.clubCode,
+        reason: payload.reason || null,
+        riskBand: payload.riskBand || null,
+        daysRemaining: Math.max(0, Number(payload.daysRemaining) || 0),
+        headline: `${name} e ${club} não chegam a acordo por renovação`,
+        summary: `A negociação terminou sem acordo${payload.daysRemaining != null ? ` com ${Math.max(0, Number(payload.daysRemaining) || 0)} dias restantes no vínculo` : ''}.`
+      },
+      context: { worldEventType: worldEvent.type }
+    };
+  }
+
+  if (worldEvent.type === 'CONTRACT_EXPIRED') {
+    const name = playerName(entities.playerId);
+    const club = clubName(entities.clubCode);
+    return {
+      ...common,
+      type: NEWSROOM_GOVERNANCE_EVENT_TYPES.CONTRACT_EXPIRED,
+      entities: { playerIds: compact([entities.playerId]), clubCodes: compact([entities.clubCode]) },
+      facts: {
+        playerId: entities.playerId,
+        clubCode: entities.clubCode || null,
+        endDate: payload.endDate || null,
+        freeAgent: Boolean(payload.freeAgent),
+        headline: `${name} deixa o ${club} ao fim do contrato`,
+        summary: `${name} encerrou o vínculo com o ${club} e passou a estar disponível como agente livre.`
+      },
+      context: { worldEventType: worldEvent.type }
+    };
+  }
+
+  if (worldEvent.type === 'BOSMAN_PRECONTRACT_AGREED') {
+    const name = playerName(entities.playerId);
+    const from = clubName(entities.fromClubCode);
+    const to = clubName(entities.toClubCode);
+    return {
+      ...common,
+      type: NEWSROOM_GOVERNANCE_EVENT_TYPES.BOSMAN_PRECONTRACT_AGREED,
+      entities: {
+        playerIds: compact([entities.playerId]),
+        clubCodes: compact([entities.fromClubCode, entities.toClubCode])
+      },
+      facts: {
+        playerId: entities.playerId,
+        fromClubCode: entities.fromClubCode || null,
+        toClubCode: entities.toClubCode,
+        startsAt: payload.startsAt || null,
+        weeklyWage: Number(payload.weeklyWage) || 0,
+        years: Number(payload.years) || 0,
+        signingBonus: Number(payload.signingBonus) || 0,
+        agentFee: Number(payload.agentFee) || 0,
+        headline: `${name} acerta pré-contrato com o ${to}`,
+        summary: `${name}, atualmente no ${from}, acertou a mudança para o ${to}${payload.startsAt ? ` a partir de ${payload.startsAt}` : ''}.`
+      },
+      context: { worldEventType: worldEvent.type, bosman: true }
+    };
+  }
+
+  return null;
+}
+
 function mappedEvent(worldEvent) {
   if (!worldEvent?.id || !worldEvent?.type || !worldEvent?.date) return null;
   const entities = worldEvent.entities || {};
@@ -32,6 +195,9 @@ function mappedEvent(worldEvent) {
     visibility: worldEvent.visibility === 'system' ? 'internal' : 'public',
     links: { worldEventId: worldEvent.id }
   };
+
+  const governance = governanceEvent(worldEvent, common);
+  if (governance) return governance;
 
   if (worldEvent.type === 'PLAYER_INJURED') {
     return {
@@ -88,7 +254,7 @@ function mappedEvent(worldEvent) {
     };
   }
 
-  if (['TRANSFER_COMPLETED', 'FREE_AGENT_SIGNED'].includes(worldEvent.type)) {
+  if (['TRANSFER_COMPLETED', 'FREE_AGENT_SIGNED', 'BOSMAN_MOVE_COMPLETED'].includes(worldEvent.type)) {
     return {
       ...common,
       type: CAREER_EVENT_TYPES.TRANSFER_COMPLETED,
@@ -100,9 +266,11 @@ function mappedEvent(worldEvent) {
         fee: Number(payload.fee) || 0,
         weeklyWage: Number(payload.weeklyWage) || 0,
         contractEnd: payload.contractEnd || null,
-        freeAgent: worldEvent.type === 'FREE_AGENT_SIGNED' || Boolean(payload.freeAgent)
+        freeAgent: worldEvent.type !== 'TRANSFER_COMPLETED' || Boolean(payload.freeAgent),
+        bosman: worldEvent.type === 'BOSMAN_MOVE_COMPLETED',
+        preContract: worldEvent.type === 'BOSMAN_MOVE_COMPLETED'
       },
-      context: { worldEventType: worldEvent.type }
+      context: { worldEventType: worldEvent.type, bosman: worldEvent.type === 'BOSMAN_MOVE_COMPLETED' }
     };
   }
 
@@ -175,7 +343,8 @@ export const NEWSROOM_WORLD_BRIDGE_META = Object.freeze({
     'TRANSFER_COMPLETED',
     'FREE_AGENT_SIGNED',
     'LOAN_OFFER_RECEIVED',
-    'LOAN_STARTED'
+    'LOAN_STARTED',
+    ...GOVERNANCE_WORLD_TYPES
   ]),
   invariant: 'world engines remain authoritative; newsroom only projects their recorded events'
 });
