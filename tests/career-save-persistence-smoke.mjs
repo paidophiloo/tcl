@@ -20,7 +20,8 @@ const {
   ensureLegacyCareerPointer,
   readCareerSummary,
   readManagerProfile,
-  recordCareerRoute
+  recordCareerRoute,
+  syncManagerProfileFromCareer
 } = await import("../src/career-save-profile.js");
 
 assert.equal(localStorage.getItem("touchline.career.v2.primary"), null, "legacy v2 fallback must be reset once");
@@ -58,6 +59,7 @@ assert.equal(summary.hasCareer, true);
 assert.equal(summary.clubCode, "MUN");
 assert.equal(summary.clubName, "Manchester United");
 assert.equal(summary.currentDate, "2026-07-01");
+assert.equal(summary.employmentStatus, "employed");
 
 recordCareerRoute("calendar");
 summary = readCareerSummary();
@@ -69,6 +71,33 @@ assert.equal(summary.hasCareer, true);
 assert.equal(summary.legacy.selectedClubCode, "MUN");
 assert.equal(summary.legacy.onboardingComplete, true);
 
+const unemployedCareer = {
+  ...career,
+  clubCode: null,
+  formerClubCode: "MUN",
+  status: "unemployed",
+  currentDate: "2026-10-18",
+  managerCareer: {
+    schemaVersion: 1,
+    status: "unemployed",
+    currentClubCode: null,
+    lastClubCode: "MUN",
+    reputation: 3.2
+  }
+};
+localStorage.setItem(CAREER_FALLBACK_KEY, JSON.stringify(unemployedCareer));
+syncManagerProfileFromCareer(unemployedCareer);
+summary = ensureLegacyCareerPointer();
+assert.equal(summary.hasCareer, true, "a manager without a club must still have a valid career save");
+assert.equal(summary.clubCode, null);
+assert.equal(summary.lastClubCode, "MUN");
+assert.equal(summary.employmentStatus, "unemployed");
+assert.equal(summary.lastRoute, "jobs");
+assert.equal(summary.legacy.selectedClubCode, null, "legacy club pointer must be cleared so the dismissed club cannot remount as user-controlled");
+assert.equal(summary.legacy.managerCareerStatus, "unemployed");
+assert.equal(readManagerProfile().activeClubCode, null);
+assert.equal(readManagerProfile().lastRoute, "jobs");
+
 localStorage.removeItem(LEGACY_CAREER_KEY);
 localStorage.removeItem(CAREER_FALLBACK_KEY);
 summary = readCareerSummary();
@@ -78,6 +107,7 @@ console.log(JSON.stringify({
   ok: true,
   managerName: profile.managerName,
   resumedRoute: "calendar",
+  unemployedRoute: "jobs",
   saveSchema: 5,
   legacyReset: true,
   durableStores: ["IndexedDB", "localStorage"]
