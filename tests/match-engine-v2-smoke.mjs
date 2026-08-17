@@ -1,6 +1,5 @@
 // Historical filename retained because CI and external scripts already call it.
-// It now validates the V3 engine through the stable public facade, then runs
-// the causal, statistical and top-down Match Day gates as part of the same CI step.
+// It validates the public V3 facade, then runs causal, statistical and Match Day gates.
 import './match-engine-v3-causality.mjs';
 import './match-engine-v3-realism.mjs';
 import './matchday-v3-ui-smoke.mjs';
@@ -10,7 +9,7 @@ import { createMvpMatchData } from '../src/mvp-data.js';
 
 function makeEngine({seed=2718,homeTactics={},awayTactics={},requiresWinner=false,aiTeamIndexes=[]}={}){const d=createMvpMatchData();return new MatchEngine({home:d.home,away:d.away,homeLineup:d.homeLineup,awayLineup:d.awayLineup,homeTactics:{...d.homeTactics,...homeTactics},awayTactics:{...d.awayTactics,...awayTactics},seed,realDurationSeconds:120,requiresWinner,aiTeamIndexes,strictInvariants:true})}
 const stamina=t=>t.players.reduce((s,p)=>s+p.stamina,0)/t.players.length;
-assert.equal(SIMULATION_VERSION,'touchline-match-sim-v3'); assert.equal(DECISION_SLICE_SECONDS,.25); assert.equal(MAX_SUBSTITUTION_WINDOWS,3);
+assert.equal(SIMULATION_VERSION,'touchline-match-sim-v3');assert.equal(DECISION_SLICE_SECONDS,.25);assert.equal(MAX_SUBSTITUTION_WINDOWS,3);
 {
  const e=makeEngine();e.start();e.processGameWindow(20);const before=e.getSnapshot().clockSeconds;e.setPaused(true);e.tick(1/30);assert.equal(e.getSnapshot().clockSeconds,before);e.setPaused(false);e.processGameWindow(.25);assert.ok(e.getSnapshot().clockSeconds>before);
 }
@@ -27,7 +26,7 @@ assert.equal(SIMULATION_VERSION,'touchline-match-sim-v3'); assert.equal(DECISION
  const e=makeEngine();e.start();const team=e.getSnapshot().teams[0];for(let w=0;w<3;w++){const out=team.players.find(p=>p.role!=='GK'&&!team.substitutedOutIds.includes(String(p.id))),inc=team.bench.find(p=>!team.usedPlayerIds.includes(String(p.id)));assert.ok(out&&inc);assert.equal(e.queueSubstitution(0,out.id,inc.id).ok,true);e.applyPendingChanges()}assert.equal(team.substitutionWindowsUsed,3);const out=team.players.find(p=>p.role!=='GK'),inc=team.bench.find(p=>!team.usedPlayerIds.includes(String(p.id)));assert.equal(e.queueSubstitution(0,out.id,inc.id).ok,false);
 }
 {
- const e=makeEngine();e.start();e.state.clockSeconds=45*60;e.periodBoundary();const team=e.getSnapshot().teams[0],out=team.players.find(p=>p.role!=='GK'),inc=team.bench.find(p=>!team.usedPlayerIds.includes(String(p.id)));assert.equal(e.queueSubstitution(0,out.id,inc.id).ok,true);e.applyPendingChanges({halftime:true});assert.equal(team.substitutionsUsed,1);assert.equal(team.substitutionWindowsUsed,0);
+ const e=makeEngine();e.start();e.state.clockSeconds=45*60;e.periodBoundary();assert.equal(e.getSnapshot().phase,'firstHalfAdded');assert.ok(e.getSnapshot().addedTime.played.firstHalf>=45);e.processGameWindow(600);assert.equal(e.getSnapshot().phase,'halftime');const team=e.getSnapshot().teams[0],out=team.players.find(p=>p.role!=='GK'),inc=team.bench.find(p=>!team.usedPlayerIds.includes(String(p.id)));assert.equal(e.queueSubstitution(0,out.id,inc.id).ok,true);e.applyPendingChanges({halftime:true});assert.equal(team.substitutionsUsed,1);assert.equal(team.substitutionWindowsUsed,0);
 }
 {
  const league=makeEngine({requiresWinner:false});league.start();league.state.score=[0,0];league.finishMatch();assert.equal(league.getSnapshot().shootout,null);const cup=makeEngine({requiresWinner:true});cup.start();cup.state.score=[0,0];cup.finishMatch();assert.ok(cup.getSnapshot().shootout);assert.notEqual(cup.getSnapshot().shootout.goals[0],cup.getSnapshot().shootout.goals[1]);
