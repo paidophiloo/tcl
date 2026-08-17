@@ -29,6 +29,16 @@ assert.equal(SIMULATION_VERSION,'touchline-match-sim-v3');assert.equal(DECISION_
  const a=makeEngine({seed:404}),b=makeEngine({seed:404});a.start();b.start();a.processGameWindow(900);for(let i=0;i<90;i++)b.processGameWindow(10);assert.deepEqual(a.getSnapshot().score,b.getSnapshot().score);assert.equal(a.getSnapshot().teams[0].stats.passesAttempted,b.getSnapshot().teams[0].stats.passesAttempted);assert.equal(a.getSnapshot().teams[1].stats.shots,b.getSnapshot().teams[1].stats.shots);
 }
 {
+ // Playback speed is presentation throughput only. Equivalent real-time input
+ // at 1x and 4x must consume the same fixed 250 ms simulation slices.
+ const one=makeEngine({seed:7331}),four=makeEngine({seed:7331});one.start();four.start();one.setSpeed(1);four.setSpeed(4);for(let i=0;i<400;i++){one.tick(.05);four.tick(.0125)}assert.equal(one.getSnapshot().clockSeconds,four.getSnapshot().clockSeconds);assert.deepEqual(one.getSnapshot().score,four.getSnapshot().score);assert.equal(one.getSnapshot().teams[0].stats.passesAttempted,four.getSnapshot().teams[0].stats.passesAttempted);assert.equal(one.getSnapshot().teams[1].stats.shots,four.getSnapshot().teams[1].stats.shots);
+}
+{
+ // One formation may deliberately become a different shape with and without
+ // the ball; phase changes must expose those named structures to presentation.
+ const e=makeEngine({homeTactics:{formation:'4-2-3-1',formationInPossession:'3-2-5',formationOutOfPossession:'4-4-2'}});e.start();const s=e.getSnapshot();s.clockSeconds=20;s.possessionTeamIndex=0;s.lastPossessionChangeAt=0;e.refreshDerived();assert.equal(s.spatial.tactical[0].phase,'IN_POSSESSION');assert.equal(s.spatial.tactical[0].shape,'3-2-5');s.possessionTeamIndex=1;s.lastPossessionChangeAt=0;e.refreshDerived();assert.equal(s.spatial.tactical[0].phase,'OUT_OF_POSSESSION');assert.equal(s.spatial.tactical[0].shape,'4-4-2');
+}
+{
  const high=makeEngine({homeTactics:{pressing:92,tempo:78,counterpress:true}}),low=makeEngine({homeTactics:{pressing:22,tempo:42,counterpress:false}});high.start();low.start();high.processGameWindow(900);low.processGameWindow(900);assert.ok(stamina(high.getSnapshot().teams[0])<stamina(low.getSnapshot().teams[0]));
 }
 {
