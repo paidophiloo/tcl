@@ -1,3 +1,3 @@
 // Stable internal facade. V2 remains in the repository as a calibration/migration
-// reference, while all public consumers now run the modular causal V3 engine.
-export * from './engine-v3.js';
+// reference, while all public consumers run the modular causal V3 + competition layer.
+export * from './engine-final.js';
