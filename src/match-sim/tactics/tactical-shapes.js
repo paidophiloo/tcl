@@ -73,8 +73,10 @@ function phaseAssignments(team,phase){
   const active=team.players.filter(p=>!p.redCard);
   const target=getFormation(phaseShapeName(team,phase));
   const signature=[phase,team.tactics.formation,phaseShapeName(team,phase),...active.map(p=>`${p.id}:${p.role}:${p.instructionRole}`)].join('|');
-  const cached=assignmentCache.get(team);
-  if(cached?.signature===signature)return cached.map;
+  let cache=assignmentCache.get(team);
+  if(!cache){cache=new Map();assignmentCache.set(team,cache)}
+  const cached=cache.get(signature);
+  if(cached)return cached;
   const prefs=active.map(p=>preferredPoint(team,p,phase));
   const slots=target.slice();
   const memo=new Map();
@@ -92,7 +94,10 @@ function phaseAssignments(team,phase){
   }
   const solved=solve(0,0),map=new Map();
   active.forEach((player,i)=>map.set(String(player.id),slots[solved.choices[i]]||target[player.slotIndex]||target.at(-1)));
-  assignmentCache.set(team,{signature,map});
+  cache.set(signature,map);
+  // A team normally needs four phase entries. Keep a small bound so repeated
+  // tactical edits during a long match cannot grow the cache without limit.
+  if(cache.size>24)cache.delete(cache.keys().next().value);
   return map;
 }
 
