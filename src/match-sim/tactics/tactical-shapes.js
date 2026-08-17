@@ -109,6 +109,16 @@ function cachedPressRank(state,teamIndex,playerId){
 
 function slotFor(team,player,phase){return phaseAssignments(team,phase).get(String(player.id))||getFormation(phaseShapeName(team,phase))[player.slotIndex]||getFormation(phaseShapeName(team,phase)).at(-1)}
 
+function applyWidth(baseY, roleWidth, sideSign, widthInstruction, roleWeight){
+  // Role positioning establishes the semantic lane first; team width then
+  // expands/contracts the whole shape around the centre line. Applying role
+  // width after team width caused both narrow and wide shapes to saturate at
+  // the touchlines, making the user's width instruction visually meaningless.
+  const semanticY=clamp01(baseY+roleWidth*sideSign*roleWeight);
+  const scale=.78+widthInstruction/185;
+  return clamp01(.5+(semanticY-.5)*scale);
+}
+
 export function tacticalAnchor(state,teamIndex,player){
   const team=state.teams[teamIndex],phase=phaseFor(state,teamIndex),slot=slotFor(team,player,phase),role=roleDefinition(player.instructionRole,player.role),ball=localPoint(team,state.ball),ment=(team.tactics.mentality-50)/100;
   let x=slot.x,y=slot.y;
@@ -116,14 +126,14 @@ export function tacticalAnchor(state,teamIndex,player){
   if(ip){
     x+=role.ip.advance*.55+ment*.07;
     const sign=slotSide(slot.role)==='left'?-1:slotSide(slot.role)==='right'?1:0;
-    y=.5+(y-.5)*(0.78+team.tactics.widthInPossession/185)+role.ip.width*sign*.55;
+    y=applyWidth(y,role.ip.width,sign,team.tactics.widthInPossession,.55);
     x+=(ball.x-.5)*.04;y+=(ball.y-.5)*.055*role.ip.support;
     if(role.ip.run==='invert')y=.5+(y-.5)*.52;
     if(phase===PHASE.AT)x+=role.transition.attack*.03;
   }else{
     x+=(team.tactics.defensiveLine-50)/100*.11+role.oop.line*.6;
     const sign=slotSide(slot.role)==='left'?-1:slotSide(slot.role)==='right'?1:0;
-    y=.5+(y-.5)*(0.78+team.tactics.widthOutOfPossession/185)+role.oop.width*sign*.5;
+    y=applyWidth(y,role.oop.width,sign,team.tactics.widthOutOfPossession,.5);
     const rank=cachedPressRank(state,teamIndex,player.id);
     if(rank<3){
       const urge=(team.tactics.pressing/100)*role.oop.press*(rank===0?1:.62);
