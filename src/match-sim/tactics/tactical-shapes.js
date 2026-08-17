@@ -15,6 +15,10 @@ export function phaseFor(state,teamIndex){
   return owns?PHASE.IP:PHASE.OOP;
 }
 
+/** Assignment preference is structural and role-driven. Team width/line sliders
+ * deliberately do NOT participate here: otherwise changing a slider can remap
+ * players to different phase slots and cancel the very spatial effect the user
+ * asked for. Sliders are applied only after semantic slot assignment. */
 function preferredPoint(team,player,phase){
   const baseShape=getFormation(team.tactics.formation);
   const base=baseShape[player.slotIndex]||baseShape.at(-1);
@@ -23,14 +27,14 @@ function preferredPoint(team,player,phase){
   let x=base.x,y=base.y;
   if(attackingPhase(phase)){
     x+=role.ip.advance;
-    y=.5+(y-.5)*(0.78+team.tactics.widthInPossession/190)+role.ip.width*sign;
+    y=.5+(y-.5)+role.ip.width*sign;
     if(role.ip.run==='invert'){x=Math.max(x,.42);y=.5+(y-.5)*.32}
     if(['overlap','outside'].includes(role.ip.run)){x=Math.max(x,.56);y=.5+(y-.5)*1.1}
     if(role.ip.run==='drop')x-=.07;
     if(role.ip.run==='depth'||role.ip.run==='last-line'||role.ip.run==='beyond')x+=.06;
   }else{
-    x+=(team.tactics.defensiveLine-50)/100*.1+role.oop.line;
-    y=.5+(y-.5)*(0.8+team.tactics.widthOutOfPossession/200)+role.oop.width*sign;
+    x+=role.oop.line;
+    y=.5+(y-.5)+role.oop.width*sign;
   }
   return {x:clamp01(x),y:clamp01(y),baseRole:base.role,baseGroup:slotGroup(base.role),baseSide:side};
 }
