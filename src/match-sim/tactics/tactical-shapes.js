@@ -1,10 +1,10 @@
 import { getFormation, slotGroup, slotSide } from './formations.js';
 import { roleDefinition } from './role-catalog.js';
-import { localPoint, worldPoint, clamp01 } from '../spatial/pitch-model.js';
-import { pressRank } from '../spatial/pressure-map.js';
+import { localPoint, worldPoint, clamp01, metricDistance } from '../spatial/pitch-model.js';
 
 export const PHASE=Object.freeze({IP:'IN_POSSESSION',AT:'ATTACKING_TRANSITION',OOP:'OUT_OF_POSSESSION',DT:'DEFENSIVE_TRANSITION'});
 const assignmentCache=new WeakMap();
+const pressureRankCache=new WeakMap();
 const attackingPhase=phase=>phase===PHASE.IP||phase===PHASE.AT;
 const phaseShapeName=(team,phase)=>attackingPhase(phase)?team.tactics.formationInPossession||team.tactics.formation:team.tactics.formationOutOfPossession||team.tactics.formation;
 
@@ -65,9 +65,6 @@ function assignmentCost(player,pref,target,phase){
   return cost;
 }
 
-/** Globally assign active players to phase-shape slots. This avoids the old
- * index-to-index bug where changing 4-2-3-1 → 3-2-5 could silently map a CM
- * into a winger slot just because both happened to be array item #6. */
 function phaseAssignments(team,phase){
   const active=team.players.filter(p=>!p.redCard);
   const target=getFormation(phaseShapeName(team,phase));
@@ -95,6 +92,17 @@ function phaseAssignments(team,phase){
   return map;
 }
 
+function cachedPressRank(state,teamIndex,playerId){
+  let entry=pressureRankCache.get(state);
+  if(!entry||entry.clock!==state.clockSeconds){entry={clock:state.clockSeconds,maps:[null,null]};pressureRankCache.set(state,entry)}
+  if(!entry.maps[teamIndex]){
+    const team=state.teams[teamIndex];
+    const ranked=team.players.filter(player=>!player.redCard).map(player=>({id:String(player.id),distance:metricDistance(player,state.ball)})).sort((a,b)=>a.distance-b.distance);
+    entry.maps[teamIndex]=new Map(ranked.map((row,index)=>[row.id,index]));
+  }
+  return entry.maps[teamIndex].get(String(playerId))??99;
+}
+
 function slotFor(team,player,phase){return phaseAssignments(team,phase).get(String(player.id))||getFormation(phaseShapeName(team,phase))[player.slotIndex]||getFormation(phaseShapeName(team,phase)).at(-1)}
 
 export function tacticalAnchor(state,teamIndex,player){
@@ -112,7 +120,7 @@ export function tacticalAnchor(state,teamIndex,player){
     x+=(team.tactics.defensiveLine-50)/100*.11+role.oop.line*.6;
     const sign=slotSide(slot.role)==='left'?-1:slotSide(slot.role)==='right'?1:0;
     y=.5+(y-.5)*(0.78+team.tactics.widthOutOfPossession/185)+role.oop.width*sign*.5;
-    const rank=pressRank(team,state.ball,player.id);
+    const rank=cachedPressRank(state,teamIndex,player.id);
     if(rank<3){
       const urge=(team.tactics.pressing/100)*role.oop.press*(rank===0?1:.62);
       x+=(ball.x-x)*urge*.13;y+=(ball.y-y)*urge*.13;
