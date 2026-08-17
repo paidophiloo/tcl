@@ -1,5 +1,9 @@
 // Historical filename retained because CI and external scripts already call it.
-// It now validates the V3 engine through the stable public facade.
+// It now validates the V3 engine through the stable public facade, then runs
+// the causal, statistical and top-down Match Day gates as part of the same CI step.
+import './match-engine-v3-causality.mjs';
+import './match-engine-v3-realism.mjs';
+import './matchday-v3-ui-smoke.mjs';
 import assert from 'node:assert/strict';
 import { DECISION_SLICE_SECONDS, MatchEngine, MAX_SUBSTITUTION_WINDOWS, SIMULATION_VERSION, calculateTeamProfile } from '../src/match-engine.js';
 import { createMvpMatchData } from '../src/mvp-data.js';
