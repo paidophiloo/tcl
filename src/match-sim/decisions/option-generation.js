@@ -4,7 +4,8 @@ import { roleDefinition } from '../tactics/role-catalog.js';
 const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,Number(v)||0));
 
 /** Generate only actions the player can plausibly perceive right now.
- * A shot is an opportunity, not a generic option unlocked by crossing midfield. */
+ * A shot exists only when the geometry, pressure and alternatives form a real
+ * shooting window. Crossing midfield never unlocks a generic shot action. */
 export function generateOptions(p){
   const role=roleDefinition(p.player.instructionRole,p.player.role);
   const vision=contextualSkill(p.player,['vision','anticipation','decisions']);
@@ -24,17 +25,24 @@ export function generateOptions(p){
   const dx=1-p.local.x;
   const lateral=Math.abs(p.local.y-.5);
   const geometricDistance=Math.hypot(dx,lateral*.72);
-  const angleQuality=clamp(1-lateral*1.55,.12,1);
+  const angleQuality=clamp(1-lateral*1.62,.08,1);
   const longShots=contextualSkill(p.player,['longShots','technique','composure','decisions']);
-  const centralBox=p.local.x>.78&&lateral<.31;
-  const edgeWindow=p.local.x>.68&&lateral<.35&&p.pressure<1.05;
-  const exceptionalLongShot=p.local.x>.625&&lateral<.28&&p.pressure<.56&&longShots>=82;
-  const hasShotWindow=centralBox||edgeWindow||exceptionalLongShot;
+  const pressure=p.pressure;
+
+  const clearCloseRange=p.local.x>.885&&lateral<.22&&pressure<1.22;
+  const genuineBoxWindow=p.local.x>.805&&lateral<.285&&pressure<.84;
+  const edgeWindow=p.local.x>.72&&lateral<.26&&pressure<.50;
+  const exceptionalLongShot=p.local.x>.655&&lateral<.21&&pressure<.34&&longShots>=85;
+  const hasShotWindow=clearCloseRange||genuineBoxWindow||edgeWindow||exceptionalLongShot;
+
   if(hasShotWindow){
-    const patiencePenalty=Math.min(.14,openProgressiveOptions*.035);
-    const windowQuality=clamp((1-geometricDistance)*.56+angleQuality*.25+(1-clamp(p.pressure/1.5))*.22-patiencePenalty);
-    if(windowQuality>.29)opts.push({type:'shot',windowQuality,openProgressiveOptions});
+    const alternativePenalty=Math.min(.2,openProgressiveOptions*.045);
+    const pressureQuality=1-clamp(pressure/1.25);
+    const windowQuality=clamp((1-geometricDistance)*.55+angleQuality*.27+pressureQuality*.28-alternativePenalty);
+    const threshold=clearCloseRange?.36:genuineBoxWindow?.43:edgeWindow?.5:.56;
+    if(windowQuality>threshold)opts.push({type:'shot',windowQuality,openProgressiveOptions});
   }
+
   if(p.local.x<.25&&p.pressure>1.15)opts.push({type:'clearance'});
   return opts;
 }
