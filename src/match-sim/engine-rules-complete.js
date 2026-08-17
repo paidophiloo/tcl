@@ -16,7 +16,6 @@ export class MatchEngine extends CompletedV3 {
 
   ledgerKey(){return periodLedgerKey(this.state.phase,this.state.period)}
   addLostTime(seconds){const key=this.ledgerKey();this.state.addedTime.ledger[key]=(this.state.addedTime.ledger[key]||0)+Math.max(0,Number(seconds)||0)}
-
   stoppage(reason){this.addLostTime(stoppageCost(reason));return super.stoppage(reason)}
 
   addEvent(type,teamIndex,playerId,description,extra={}){
@@ -75,6 +74,16 @@ export class MatchEngine extends CompletedV3 {
     this.state.addedTime.target=null;
     this._addedTimeBypass=true;
     return this.periodBoundary();
+  }
+
+  resumeSecondHalf(){
+    if(this.state.phase==='halftime')this.state.clockSeconds=HALF_SECONDS;
+    return super.resumeSecondHalf();
+  }
+
+  resumeExtraTime(){
+    if(this.state.phase==='extraTimeBreak')this.state.clockSeconds=FULL_TIME_SECONDS;
+    return super.resumeExtraTime();
   }
 
   processSlice(dt){
