@@ -1,11 +1,23 @@
 // Historical filename retained because CI and external scripts already call it.
-// It validates the public V3 facade, then runs causal, statistical and Match Day gates.
-import './match-engine-v3-causality.mjs';
-import './match-engine-v3-realism.mjs';
-import './matchday-v3-ui-smoke.mjs';
+// It validates the public V3 facade and runs causal, statistical and Match Day gates.
 import assert from 'node:assert/strict';
 import { DECISION_SLICE_SECONDS, MatchEngine, MAX_SUBSTITUTION_WINDOWS, SIMULATION_VERSION, calculateTeamProfile } from '../src/match-engine.js';
 import { createMvpMatchData } from '../src/mvp-data.js';
+
+async function gate(label,path){
+  try{
+    await import(path);
+    console.log(`::notice file=tests/match-engine-v2-smoke.mjs,line=1,title=V3 gate passed::${label}`);
+  }catch(error){
+    const message=String(error?.stack||error?.message||error).replace(/\r?\n/g,' | ').slice(0,3500);
+    console.log(`::error file=tests/match-engine-v2-smoke.mjs,line=1,title=V3 gate failed - ${label}::${message}`);
+    throw error;
+  }
+}
+
+await gate('tactical causality','./match-engine-v3-causality.mjs');
+await gate('statistical realism','./match-engine-v3-realism.mjs');
+await gate('top-down Match Day UI','./matchday-v3-ui-smoke.mjs');
 
 function makeEngine({seed=2718,homeTactics={},awayTactics={},requiresWinner=false,aiTeamIndexes=[]}={}){const d=createMvpMatchData();return new MatchEngine({home:d.home,away:d.away,homeLineup:d.homeLineup,awayLineup:d.awayLineup,homeTactics:{...d.homeTactics,...homeTactics},awayTactics:{...d.awayTactics,...awayTactics},seed,realDurationSeconds:120,requiresWinner,aiTeamIndexes,strictInvariants:true})}
 const stamina=t=>t.players.reduce((s,p)=>s+p.stamina,0)/t.players.length;
